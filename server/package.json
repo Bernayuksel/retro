@@ -1,0 +1,20 @@
+{
+  "name": "retro-app-server",
+  "version": "1.0.0",
+  "description": "QuickRetro benzeri, self-hosted sprint retrospektif aracı",
+  "main": "src/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "pdfkit": "^0.15.0",
+    "uuid": "^9.0.1",
+    "ws": "^8.18.0"
+  }
+}

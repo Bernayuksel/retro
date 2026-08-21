@@ -1,0 +1,13 @@
+services:
+  retro-app:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - retro-data:/app/data
+      - retro-reports:/app/reports
+    restart: unless-stopped
+
+volumes:
+  retro-data:
+  retro-reports:

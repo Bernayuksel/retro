@@ -1,0 +1,102 @@
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: #f4f5f7;
+  color: #1f2937;
+}
+#app { max-width: 1100px; margin: 0 auto; padding: 24px 16px; }
+
+h1, h2 { margin: 0 0 12px; }
+
+.card-box {
+  background: white;
+  border-radius: 10px;
+  padding: 20px;
+  box-shadow: 0 1px 3px rgba(0,0,0,.1);
+  margin-bottom: 16px;
+}
+
+input, select, button, textarea {
+  font-family: inherit;
+  font-size: 14px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+button:hover { background: #1d4ed8; }
+button.secondary { background: #6b7280; }
+button.danger { background: #dc2626; }
+
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.col-input-row { display: flex; gap: 8px; margin-bottom: 8px; }
+
+.board-columns {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 16px;
+}
+.board-column {
+  background: #eef0f4;
+  border-radius: 10px;
+  padding: 12px;
+  min-height: 200px;
+}
+.board-column h3 { margin: 0 0 10px; font-size: 15px; }
+
+.retro-card {
+  background: white;
+  border-radius: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+  box-shadow: 0 1px 2px rgba(0,0,0,.08);
+}
+.retro-card.masked {
+  filter: blur(4px);
+  user-select: none;
+  opacity: .7;
+}
+.retro-card .meta {
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 6px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+.vote-btn {
+  background: #f3f4f6;
+  color: #1f2937;
+  border: 1px solid #d1d5db;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.vote-btn:hover { background: #e5e7eb; }
+
+.topbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.badge {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1e40af;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.action-item { border-bottom: 1px solid #e5e7eb; padding: 8px 0; }
+.action-item:last-child { border-bottom: none; }
+.action-meta { font-size: 12px; color: #6b7280; }
+
+a { color: #2563eb; }
