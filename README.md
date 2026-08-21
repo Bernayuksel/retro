@@ -1,6 +1,6 @@
 # Retro App
 
-QuickRetro benzeri, self-hosted, gerçek zamanlı sprint retrospektif aracı.
+ self-hosted, gerçek zamanlı sprint retrospektif aracı.
 Login gerektirmez, sonunda otomatik PDF + paylaşılabilir link raporu üretir.
 
 ## Özellikler
