@@ -1,4 +1,3 @@
-```js
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
@@ -172,4 +171,3 @@ for (const board of boards) {
 }
 
 module.exports = db;
-```
