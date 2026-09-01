@@ -1,4 +1,4 @@
-```js
+```javascript
 const app = document.getElementById('app');
 
 const state = {
@@ -6,33 +6,49 @@ const state = {
   participantId: null,
   boardId: null,
   name: null,
-  role: null,
+  role: 'participant',
   columns: [],
   status: 'open',
-  openCommentCard: null,
-  board: null
+  participants: [],
+  openComments: new Set()
 };
 
 
-/* =========================================================
-   HELPERS
-========================================================= */
+// =========================================================
+// HELPERS
+// =========================================================
 
 function h(html) {
-  const t = document.createElement('template');
-  t.innerHTML = html.trim();
-  return t.content;
+  const template = document.createElement('template');
+  template.innerHTML = html.trim();
+  return template.content;
 }
 
+
 function escapeHtml(value) {
-  return String(value || '').replace(/[&<>"']/g, m => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;'
-  }[m]));
+  return String(value || '').replace(
+    /[&<>"']/g,
+    char => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      '"': '&quot;',
+      "'": '&#39;'
+    }[char])
+  );
 }
+
+
+function initials(name) {
+  return (name || '?')
+    .trim()
+    .split(/\s+/)
+    .slice(0, 2)
+    .map(x => x[0])
+    .join('')
+    .toUpperCase();
+}
+
 
 function statusLabel(status) {
   return {
@@ -43,37 +59,30 @@ function statusLabel(status) {
 }
 
 
-/* =========================================================
-   ROUTER
-========================================================= */
-
 function navigate() {
-
   const hash = location.hash || '#/';
 
   if (hash === '#/') {
-    renderHome();
-    return;
+    return renderHome();
   }
 
   const boardMatch =
     hash.match(/^#\/board\/([a-zA-Z0-9-]+)$/);
 
   if (boardMatch) {
-    renderBoard(boardMatch[1]);
-    return;
+    return renderBoard(boardMatch[1]);
   }
 
   const reportMatch =
     hash.match(/^#\/report\/([a-zA-Z0-9-]+)$/);
 
   if (reportMatch) {
-    renderReport(reportMatch[1]);
-    return;
+    return renderReport(reportMatch[1]);
   }
 
   renderHome();
 }
+
 
 window.addEventListener(
   'hashchange',
@@ -81,51 +90,68 @@ window.addEventListener(
 );
 
 
-/* =========================================================
-   HOME
-========================================================= */
+// =========================================================
+// HOME
+// =========================================================
 
 function renderHome() {
 
   app.innerHTML = '';
 
   app.appendChild(h(`
-    <div class="home-page">
+    <main class="home-page">
 
-      <div class="hero">
+      <section class="hero">
 
-        <div class="logo-mark">✦</div>
+        <div class="logo-mark">
+          ↗
+        </div>
 
         <div>
-          <div class="eyebrow">RETROSPECTIVE</div>
-          <h1>Better retros.<br><span>Better teams.</span></h1>
+          <div class="eyebrow">
+            SPRINT RETROSPECTIVE
+          </div>
+
+          <h1>
+            Better retros,<br>
+            <span>better teams.</span>
+          </h1>
+
           <p>
-            Ekibinle birlikte neyin iyi gittiğini,
-            neyin geliştirilmesi gerektiğini ve
-            sonraki sprint için aksiyonları keşfet.
+            Ekibinizle birlikte nelerin iyi gittiğini,
+            nelerin geliştirilebileceğini ve bir sonraki
+            sprint için hangi aksiyonların alınacağını
+            kolayca belirleyin.
           </p>
         </div>
 
-      </div>
+      </section>
 
 
-      <div class="home-grid">
+      <section class="home-grid">
 
         <div class="glass-card">
 
-          <div class="card-icon">＋</div>
+          <div class="card-icon">+</div>
 
-          <h2>Yeni Retro</h2>
+          <h2>Yeni retro oluştur</h2>
 
           <p class="muted">
-            Yeni bir retrospektif board oluştur.
+            Ekibiniz için yeni bir retrospective board
+            oluşturun.
           </p>
+
+
+          <div class="section-label">
+            BOARD BAŞLIĞI
+          </div>
 
           <input
             id="title"
             class="modern-input"
             placeholder="Örn. Sprint 24 Retro"
           />
+
 
           <div class="section-label">
             KOLONLAR
@@ -141,6 +167,7 @@ function renderHome() {
             + Kolon ekle
           </button>
 
+
           <div class="section-label">
             BOARD SÜRESİ
           </div>
@@ -149,21 +176,27 @@ function renderHome() {
 
             <input
               id="ttl"
+              class="modern-input small-input"
               type="number"
               value="48"
-              class="modern-input small-input"
+              min="1"
             />
 
-            <span> saat</span>
+            <span>saat sonra otomatik silinsin</span>
 
           </div>
 
-          <button
-            id="createBtn"
-            class="primary-button full"
-          >
-            Retro Oluştur →
-          </button>
+
+          <div style="margin-top:24px">
+
+            <button
+              id="createBtn"
+              class="primary-button full"
+            >
+              Board Oluştur →
+            </button>
+
+          </div>
 
         </div>
 
@@ -172,36 +205,53 @@ function renderHome() {
 
           <div class="card-icon">↗</div>
 
-          <h2>Retro'ya Katıl</h2>
+          <h2>Board'a katıl</h2>
 
           <p class="muted">
-            Takım arkadaşının gönderdiği
-            board ID'sini kullan.
+            Ekibinizden gelen board ID'sini girerek
+            mevcut retroya katılın.
           </p>
+
+
+          <div class="section-label">
+            BOARD ID
+          </div>
 
           <input
             id="joinId"
             class="modern-input"
-            placeholder="Board ID"
+            placeholder="xxxxxxxx-xxxx-xxxx-xxxx"
           />
 
-          <button
-            id="joinBtn"
-            class="secondary-button full"
-          >
-            Board'a Katıl
-          </button>
+
+          <div style="margin-top:12px">
+
+            <button
+              id="joinBtn"
+              class="secondary-button full"
+            >
+              Board'a Katıl
+            </button>
+
+          </div>
 
         </div>
 
-      </div>
+      </section>
 
-    </div>
+    </main>
   `));
 
 
   const colInputs =
     document.getElementById('colInputs');
+
+
+  const defaultCols = [
+    'İyi gitti',
+    'Daha iyi olabilirdi',
+    'Aksiyonlar'
+  ];
 
 
   function addColRow(value = '') {
@@ -210,15 +260,16 @@ function renderHome() {
       document.createElement('div');
 
     row.className =
-      'col-input-row modern-col-row';
+      'modern-col-row';
+
 
     row.innerHTML = `
 
       <input
-        class="colName modern-input"
+        class="modern-input colName"
         value="${escapeHtml(value)}"
         placeholder="Kolon adı"
-      />
+      >
 
       <button
         class="remove-col"
@@ -226,10 +277,13 @@ function renderHome() {
       >
         ×
       </button>
+
     `;
 
-    row.querySelector('.remove-col').onclick =
-      () => {
+
+    row
+      .querySelector('.remove-col')
+      .onclick = () => {
 
         if (colInputs.children.length <= 1) {
           return;
@@ -238,15 +292,12 @@ function renderHome() {
         row.remove();
       };
 
+
     colInputs.appendChild(row);
   }
 
 
-  [
-    'İyi gitti',
-    'Geliştirebiliriz',
-    'Aksiyonlar'
-  ].forEach(addColRow);
+  defaultCols.forEach(addColRow);
 
 
   document.getElementById('addCol').onclick =
@@ -254,11 +305,9 @@ function renderHome() {
 
       if (colInputs.children.length >= 5) {
 
-        alert(
-          'En fazla 5 kolon ekleyebilirsiniz.'
+        return alert(
+          'En fazla 5 kolon eklenebilir.'
         );
-
-        return;
       }
 
       addColRow();
@@ -269,8 +318,10 @@ function renderHome() {
     async () => {
 
       const title =
-        document.getElementById('title')
-          .value.trim();
+        document
+          .getElementById('title')
+          .value
+          .trim();
 
 
       const cols =
@@ -286,53 +337,42 @@ function renderHome() {
         ) || 48;
 
 
-      if (!title || !cols.length) {
+      if (!title || cols.length === 0) {
 
-        alert(
-          'Board başlığı ve en az bir kolon gerekli.'
+        return alert(
+          'Başlık ve en az bir kolon gerekli.'
         );
-
-        return;
       }
-
-
-      const name =
-        prompt(
-          'Adınız:'
-        );
-
-
-      if (!name || !name.trim()) {
-        return;
-      }
-
-
-      state.name =
-        name.trim();
 
 
       const res =
-        await fetch(
-          '/api/boards',
-          {
-            method: 'POST',
+        await fetch('/api/boards', {
 
-            headers: {
-              'Content-Type':
-                'application/json'
-            },
+          method: 'POST',
 
-            body: JSON.stringify({
-              title,
-              columns: cols,
-              ttl_hours: ttl
-            })
-          }
-        );
+          headers: {
+            'Content-Type': 'application/json'
+          },
+
+          body: JSON.stringify({
+            title,
+            columns: cols,
+            ttl_hours: ttl
+          })
+
+        });
 
 
       const data =
         await res.json();
+
+
+      if (!res.ok) {
+
+        return alert(
+          data.error || 'Board oluşturulamadı.'
+        );
+      }
 
 
       location.hash =
@@ -344,39 +384,23 @@ function renderHome() {
     () => {
 
       const id =
-        document.getElementById('joinId')
-          .value.trim();
+        document
+          .getElementById('joinId')
+          .value
+          .trim();
 
 
-      if (!id) {
-        return;
+      if (id) {
+        location.hash =
+          `#/board/${id}`;
       }
-
-
-      const name =
-        prompt(
-          'Adınız:'
-        );
-
-
-      if (!name || !name.trim()) {
-        return;
-      }
-
-
-      state.name =
-        name.trim();
-
-
-      location.hash =
-        `#/board/${id}`;
     };
 }
 
 
-/* =========================================================
-   BOARD
-========================================================= */
+// =========================================================
+// BOARD
+// =========================================================
 
 async function renderBoard(boardId) {
 
@@ -390,10 +414,15 @@ async function renderBoard(boardId) {
 
     app.innerHTML = `
       <div class="empty-page">
-        <div class="empty-icon">404</div>
+        <div class="empty-icon">!</div>
         <h2>Board bulunamadı</h2>
-        <p>Board silinmiş veya süresi dolmuş olabilir.</p>
-        <button onclick="location.hash='#/'">
+        <p class="muted">
+          Board silinmiş veya süresi dolmuş olabilir.
+        </p>
+        <button
+          class="primary-button"
+          onclick="location.hash='#/'"
+        >
           Ana sayfaya dön
         </button>
       </div>
@@ -407,57 +436,61 @@ async function renderBoard(boardId) {
     await res.json();
 
 
-  state.boardId =
-    boardId;
+  state.boardId = boardId;
+  state.columns = board.columns;
+  state.status = board.status;
+  state.participants =
+    board.participants || [];
 
-  state.board =
-    board;
 
-  state.columns =
-    board.columns;
-
-  state.status =
-    board.status;
-
+  /*
+   * Kullanıcı daha önce isim girmediyse sor.
+   */
 
   if (!state.name) {
 
-    const name =
-      prompt('Adınız:');
-
     state.name =
-      name?.trim() || 'Anonim';
+      prompt('Adınız:') ||
+      'Anonim';
   }
 
 
   /*
-   * Önce board ekranını oluşturuyoruz.
-   * WebSocket bağlandıktan sonra gerçek rolümüz geliyor.
+   * WebSocket'e bağlanmadan önce
+   * eski UI state'ini temizle.
    */
+
+  state.openComments.clear();
+
 
   app.innerHTML = '';
 
+
   app.appendChild(h(`
 
-    <div class="retro-page">
+    <main class="retro-page">
 
-
-      <!-- HEADER -->
 
       <header class="retro-header">
 
         <div class="brand">
-          <div class="logo-mark small">✦</div>
+
+          <div class="logo-mark small">
+            ↗
+          </div>
 
           <div>
+
             <div class="brand-title">
-              ${escapeHtml(board.title)}
+              Retro
             </div>
 
             <div class="brand-subtitle">
-              Sprint Retrospective
+              Sprint retrospective
             </div>
+
           </div>
+
         </div>
 
 
@@ -476,7 +509,7 @@ async function renderBoard(boardId) {
           >
             👥
             <span id="participantCount">
-              ${board.participants?.length || 0}
+              ${board.participants.length}
             </span>
           </button>
 
@@ -485,161 +518,121 @@ async function renderBoard(boardId) {
       </header>
 
 
-      <!-- BOARD -->
+      <section class="board-intro">
 
-      <main>
+        <div class="eyebrow">
+          RETROSPECTIVE BOARD
+        </div>
 
-        <div
-          class="board-intro"
-        >
+        <h1>
+          ${escapeHtml(board.title)}
+        </h1>
 
-          <div>
+        <p>
+          Düşüncelerinizi paylaşın, birbirinizin
+          fikirlerine oy verin ve aksiyonları belirleyin.
+        </p>
 
-            <div class="eyebrow">
-              TEAM RETRO
-            </div>
+      </section>
 
-            <h1>
-              Let's reflect.
-            </h1>
 
-            <p>
-              Fikirlerini paylaş, takım arkadaşlarını
-              destekle ve birlikte daha iyisini yapın.
-            </p>
+      <section
+        class="board-columns"
+        id="columns"
+      ></section>
 
+
+      <section
+        class="actions-section"
+        id="actionsSection"
+      >
+
+        <div class="section-heading">
+
+          <div class="eyebrow">
+            NEXT STEPS
           </div>
+
+          <h2>
+            Aksiyon Maddeleri
+          </h2>
 
         </div>
 
 
         <div
-          id="columns"
-          class="board-columns"
+          id="actionsList"
+          class="actions-list"
         ></div>
 
 
-        <!-- ACTIONS -->
+        <div class="action-form">
 
-        <section class="actions-section">
+          <input
+            id="actionContent"
+            class="modern-input"
+            placeholder="Aksiyon maddesi..."
+          >
 
-          <div class="section-heading">
+          <input
+            id="actionOwner"
+            class="modern-input"
+            placeholder="Sorumlu"
+          >
 
-            <div>
+          <input
+            id="actionDue"
+            class="modern-input"
+            type="date"
+          >
 
-              <div class="eyebrow">
-                NEXT STEPS
-              </div>
-
-              <h2>
-                Aksiyon Maddeleri
-              </h2>
-
-            </div>
-
-          </div>
-
-
-          <div
-            id="actionsList"
-            class="actions-list"
-          ></div>
-
-
-          <div class="action-form">
-
-            <input
-              id="actionContent"
-              class="modern-input"
-              placeholder="Hangi aksiyonu alacağız?"
-            />
-
-            <input
-              id="actionOwner"
-              class="modern-input"
-              placeholder="Sorumlu"
-            />
-
-            <input
-              id="actionDue"
-              type="date"
-              class="modern-input"
-            />
-
-            <button
-              id="addActionBtn"
-              class="primary-button"
-            >
-              + Ekle
-            </button>
-
-          </div>
-
-        </section>
-
-
-        <!-- ADMIN PANEL -->
-
-        <section
-          id="adminPanel"
-          class="admin-panel hidden"
-        ></section>
-
-      </main>
-
-
-      <!-- PARTICIPANTS MODAL -->
-
-      <div
-        id="participantsModal"
-        class="modal hidden"
-      >
-
-        <div class="modal-backdrop"></div>
-
-        <div class="modal-content">
-
-          <div class="modal-header">
-
-            <div>
-              <div class="eyebrow">
-                TEAM
-              </div>
-
-              <h2>
-                Katılımcılar
-              </h2>
-            </div>
-
-            <button
-              id="closeParticipants"
-              class="close-button"
-            >
-              ×
-            </button>
-
-          </div>
-
-          <div
-            id="participantsList"
-          ></div>
+          <button
+            id="addActionBtn"
+            class="primary-button"
+          >
+            Ekle
+          </button>
 
         </div>
 
-      </div>
+      </section>
 
-    </div>
+
+      <section
+        id="adminPanel"
+        class="admin-panel"
+        style="display:none"
+      ></section>
+
+
+    </main>
 
   `));
 
 
-  renderColumns(board);
+  renderColumns(
+    board.columns,
+    board.cards,
+    board.status
+  );
 
-  renderActions(board.actions);
 
-  renderParticipants(board.participants);
+  renderActions(
+    board.actions || []
+  );
 
-  setupBoardEvents();
+
+  document
+    .getElementById('participantsBtn')
+    .onclick =
+      () => openParticipantsModal();
+
+
+  document
+    .getElementById('addActionBtn')
+    .onclick =
+      addAction;
+
 
   connectWs(
     boardId,
@@ -648,33 +641,55 @@ async function renderBoard(boardId) {
 }
 
 
-/* =========================================================
-   COLUMNS
-========================================================= */
+// =========================================================
+// COLUMNS
+// =========================================================
 
-function renderColumns(board) {
+function renderColumns(
+  columns,
+  cards,
+  boardStatus
+) {
 
-  const columnsEl =
+  const container =
     document.getElementById('columns');
 
-  if (!columnsEl) {
-    return;
-  }
+
+  if (!container) return;
 
 
-  columnsEl.innerHTML = '';
+  container.innerHTML = '';
 
 
-  board.columns.forEach(column => {
+  const grouped = {};
+
+
+  columns.forEach(col => {
+    grouped[col.id] = [];
+  });
+
+
+  cards.forEach(card => {
+
+    if (!grouped[card.column_id]) {
+      grouped[card.column_id] = [];
+    }
+
+    grouped[card.column_id].push(card);
+  });
+
+
+  columns.forEach((column, index) => {
+
+    const cardsInColumn =
+      grouped[column.id] || [];
+
 
     const columnEl =
-      document.createElement('section');
-
-    columnEl.className =
-      'retro-column';
+      document.createElement('div');
 
 
-    const colors = [
+    const colorClasses = [
       'column-yellow',
       'column-purple',
       'column-green',
@@ -683,16 +698,14 @@ function renderColumns(board) {
     ];
 
 
-    const colorClass =
-      colors[
-        board.columns.indexOf(column) %
-        colors.length
-      ];
+    columnEl.className =
+      `retro-column ${
+        colorClasses[index % colorClasses.length]
+      }`;
 
 
-    columnEl.classList.add(
-      colorClass
-    );
+    columnEl.dataset.colId =
+      column.id;
 
 
     columnEl.innerHTML = `
@@ -709,11 +722,8 @@ function renderColumns(board) {
 
         </div>
 
-        <span
-          class="column-count"
-          id="count-${column.id}"
-        >
-          0
+        <span class="column-count">
+          ${cardsInColumn.length}
         </span>
 
       </div>
@@ -727,11 +737,10 @@ function renderColumns(board) {
 
       <div class="add-card-area">
 
-        <textarea
-          class="newCardInput modern-input"
-          rows="2"
-          placeholder="Bir fikir paylaş..."
-        ></textarea>
+        <input
+          class="modern-input newCardInput"
+          placeholder="Kart ekle..."
+        >
 
 
         <div class="card-form-bottom">
@@ -741,17 +750,15 @@ function renderColumns(board) {
             <input
               type="checkbox"
               class="anonCheck"
-            />
+            >
 
-            <span>
-              Anonim
-            </span>
+            anonim
 
           </label>
 
 
           <button
-            class="addCardBtn small-primary"
+            class="small-primary addCardBtn"
           >
             Ekle
           </button>
@@ -763,9 +770,7 @@ function renderColumns(board) {
     `;
 
 
-    columnsEl.appendChild(
-      columnEl
-    );
+    container.appendChild(columnEl);
 
 
     columnEl
@@ -782,9 +787,7 @@ function renderColumns(board) {
           input.value.trim();
 
 
-        if (!content) {
-          return;
-        }
+        if (!content) return;
 
 
         const anonymous =
@@ -797,82 +800,48 @@ function renderColumns(board) {
 
           type: 'card_add',
 
-          column_id:
-            column.id,
+          column_id: column.id,
 
           content,
 
           anonymous,
 
-          author_name:
-            state.name
+          author_name: state.name
 
         });
 
 
         input.value = '';
       };
-  });
-}
 
 
-/* =========================================================
-   CARDS
-========================================================= */
+    columnEl
+      .querySelector('.newCardInput')
+      .addEventListener(
+        'keydown',
+        event => {
 
-function renderCards(cards, boardStatus) {
+          if (
+            event.key === 'Enter'
+          ) {
 
-  const grouped = {};
-
-
-  state.columns.forEach(column => {
-    grouped[column.id] = [];
-  });
-
-
-  for (const card of cards) {
-
-    if (!grouped[card.column_id]) {
-      grouped[card.column_id] = [];
-    }
-
-    grouped[
-      card.column_id
-    ].push(card);
-  }
-
-
-  state.columns.forEach(column => {
-
-    const container =
-      document.getElementById(
-        `cards-${column.id}`
+            columnEl
+              .querySelector('.addCardBtn')
+              .click();
+          }
+        }
       );
 
 
-    if (!container) {
-      return;
-    }
-
-
-    container.innerHTML = '';
-
-
-    const count =
-      document.getElementById(
-        `count-${column.id}`
+    const cardsContainer =
+      columnEl.querySelector(
+        `#cards-${column.id}`
       );
 
 
-    if (count) {
-      count.textContent =
-        grouped[column.id].length;
-    }
+    cardsInColumn.forEach(card => {
 
-
-    grouped[column.id].forEach(card => {
-
-      container.appendChild(
+      cardsContainer.appendChild(
         renderCardEl(
           card,
           boardStatus
@@ -880,13 +849,14 @@ function renderCards(cards, boardStatus) {
       );
 
     });
+
   });
 }
 
 
-/* =========================================================
-   CARD ELEMENT
-========================================================= */
+// =========================================================
+// CARD
+// =========================================================
 
 function renderCardEl(
   card,
@@ -910,198 +880,163 @@ function renderCardEl(
     card.id;
 
 
-  const authorLabel =
+  const author =
     card.is_anonymous
       ? 'Anonim'
       : (
-        card.author_name ||
-        'Anonim'
-      );
+          card.author_name ||
+          'Anonim'
+        );
 
 
-  const commentOpen =
-    state.openCommentCard ===
-    card.id;
+  const comments =
+    card.comments || [];
+
+
+  const commentsOpen =
+    state.openComments.has(card.id);
 
 
   el.innerHTML = `
 
-    <div class="card-top">
-
-      <span class="card-author">
-        ${masked ? '' : escapeHtml(authorLabel)}
-      </span>
-
-      <button
-        class="card-menu"
-        title="Daha fazla"
-      >
-        ···
-      </button>
-
-    </div>
-
-
-    <div class="card-content">
-
-      ${
-        masked
-
-          ? `
-            <div class="hidden-card">
-              🔒
-              Kart gizli
-            </div>
-          `
-
-          : escapeHtml(
-              card.content
-            )
-      }
-
-    </div>
-
-
-    <div class="card-footer">
-
-      <button
-        class="reaction-button vote-btn"
-        ${masked ? 'disabled' : ''}
-      >
-        👍
-        <span>
-          ${card.vote_count || 0}
-        </span>
-      </button>
-
-
-      <button
-        class="comment-button"
-      >
-        💬
-        <span>
-          Yorum
-        </span>
-      </button>
-
-    </div>
-
-
     ${
-      commentOpen && !masked
+      masked
 
         ? `
 
-          <div class="comments-panel">
-
-            <div class="comments-header">
-
-              <strong>
-                Yorumlar
-              </strong>
-
-              <button
-                class="close-comments"
-              >
-                ×
-              </button>
-
-            </div>
-
-            <div class="comments-empty">
-              Yorum sistemi hazır.
-              <br>
-              Bu alanı bir sonraki adımda
-              gerçek zamanlı yorumlarla bağlıyoruz.
-            </div>
-
+          <div class="hidden-card">
+            🔒 Kart gizli — admin kartları açtığında
+            içerik görünecek.
           </div>
 
         `
 
-        : ''
+        : `
+
+          <div class="card-top">
+
+            <span class="card-author">
+              ${escapeHtml(author)}
+            </span>
+
+            <button
+              class="card-menu"
+              title="Kart"
+            >
+              •••
+            </button>
+
+          </div>
+
+
+          <div class="card-content">
+            ${escapeHtml(card.content)}
+          </div>
+
+
+          <div class="card-footer">
+
+            <button
+              class="reaction-button"
+              data-vote
+            >
+              👍 ${card.vote_count || 0}
+            </button>
+
+
+            <button
+              class="comment-button"
+              data-comments
+            >
+              💬 ${comments.length}
+            </button>
+
+          </div>
+
+
+          ${
+            commentsOpen
+              ? renderCommentsHtml(
+                  card
+                )
+              : ''
+          }
+
+        `
     }
 
   `;
 
 
-  /*
-   * Vote
-   */
-
   if (!masked) {
 
-    el.querySelector(
-      '.vote-btn'
-    ).onclick = () => {
-
-      send({
-
-        type: 'vote_add',
-
-        card_id:
-          card.id
-
-      });
-
-    };
-  }
+    const voteButton =
+      el.querySelector(
+        '[data-vote]'
+      );
 
 
-  /*
-   * Comment toggle
-   */
+    if (voteButton) {
 
-  el.querySelector(
-    '.comment-button'
-  ).onclick = event => {
+      voteButton.onclick =
+        () => {
 
-    event.stopPropagation();
+          send({
+            type: 'vote_add',
+            card_id: card.id
+          });
 
-
-    if (
-      state.openCommentCard ===
-      card.id
-    ) {
-
-      state.openCommentCard =
-        null;
-
-    } else {
-
-      state.openCommentCard =
-        card.id;
-
+        };
     }
 
 
-    refreshBoardData();
-  };
+    const commentButton =
+      el.querySelector(
+        '[data-comments]'
+      );
 
 
-  /*
-   * Close comment
-   */
+    if (commentButton) {
 
-  const closeComments =
-    el.querySelector(
-      '.close-comments'
-    );
+      commentButton.onclick =
+        () => {
+
+          /*
+           * ÖNEMLİ:
+           * Set.delete ile gerçekten kapanıyor.
+           */
+
+          if (
+            state.openComments.has(
+              card.id
+            )
+          ) {
+
+            state.openComments.delete(
+              card.id
+            );
+
+          } else {
+
+            state.openComments.add(
+              card.id
+            );
+          }
 
 
-  if (closeComments) {
+          refreshBoardData();
+        };
+    }
 
-    closeComments.onclick =
-      event => {
 
-        event.stopPropagation();
+    if (commentsOpen) {
 
-        state.openCommentCard =
-          null;
+      bindCommentEvents(
+        el,
+        card
+      );
+    }
 
-        refreshBoardData();
-
-      };
   }
 
 
@@ -1109,9 +1044,241 @@ function renderCardEl(
 }
 
 
-/* =========================================================
-   ACTIONS
-========================================================= */
+// =========================================================
+// COMMENTS
+// =========================================================
+
+function renderCommentsHtml(card) {
+
+  const comments =
+    card.comments || [];
+
+
+  return `
+
+    <div class="comments-panel">
+
+      <div class="comments-header">
+
+        <strong>
+          Yorumlar
+        </strong>
+
+        <button
+          class="close-comments"
+          data-close-comments
+          title="Yorumları kapat"
+        >
+          ×
+        </button>
+
+      </div>
+
+
+      ${
+        comments.length
+
+          ? comments.map(comment => `
+
+              <div class="comment-row"
+                   style="
+                     padding:7px 0;
+                     border-bottom:1px solid #eee;
+                     font-size:12px;
+                   ">
+
+                <div
+                  style="
+                    display:flex;
+                    justify-content:space-between;
+                    gap:8px;
+                  "
+                >
+
+                  <strong>
+                    ${escapeHtml(
+                      comment.author_name
+                    )}
+                  </strong>
+
+                  <button
+                    class="delete-comment"
+                    data-comment-id="${comment.id}"
+                    style="
+                      border:0;
+                      background:transparent;
+                      color:#aaa;
+                      cursor:pointer;
+                    "
+                  >
+                    ×
+                  </button>
+
+                </div>
+
+                <div
+                  style="
+                    margin-top:3px;
+                    color:#555;
+                  "
+                >
+                  ${escapeHtml(
+                    comment.content
+                  )}
+                </div>
+
+              </div>
+
+            `).join('')
+
+          : `
+
+              <div class="comments-empty">
+                Henüz yorum yok.
+              </div>
+
+            `
+      }
+
+
+      <div
+        style="
+          display:flex;
+          gap:6px;
+          margin-top:10px;
+        "
+      >
+
+        <input
+          class="modern-input comment-input"
+          placeholder="Yorum yaz..."
+        >
+
+        <button
+          class="small-primary add-comment"
+        >
+          Gönder
+        </button>
+
+      </div>
+
+    </div>
+
+  `;
+}
+
+
+function bindCommentEvents(
+  cardElement,
+  card
+) {
+
+  const closeButton =
+    cardElement.querySelector(
+      '[data-close-comments]'
+    );
+
+
+  if (closeButton) {
+
+    closeButton.onclick =
+      () => {
+
+        state.openComments.delete(
+          card.id
+        );
+
+        refreshBoardData();
+      };
+  }
+
+
+  const input =
+    cardElement.querySelector(
+      '.comment-input'
+    );
+
+
+  const addButton =
+    cardElement.querySelector(
+      '.add-comment'
+    );
+
+
+  if (addButton) {
+
+    addButton.onclick =
+      () => {
+
+        const content =
+          input.value.trim();
+
+
+        if (!content) return;
+
+
+        send({
+
+          type: 'comment_add',
+
+          card_id: card.id,
+
+          content
+
+        });
+
+
+        input.value = '';
+
+      };
+  }
+
+
+  if (input) {
+
+    input.addEventListener(
+      'keydown',
+      event => {
+
+        if (
+          event.key === 'Enter'
+        ) {
+
+          addButton.click();
+        }
+
+      }
+    );
+  }
+
+
+  cardElement
+    .querySelectorAll(
+      '.delete-comment'
+    )
+    .forEach(button => {
+
+      button.onclick =
+        () => {
+
+          send({
+
+            type: 'comment_delete',
+
+            comment_id:
+              button.dataset.commentId
+
+          });
+
+        };
+
+    });
+}
+
+
+// =========================================================
+// ACTIONS
+// =========================================================
 
 function renderActions(actions) {
 
@@ -1121,16 +1288,14 @@ function renderActions(actions) {
     );
 
 
-  if (!list) {
-    return;
-  }
+  if (!list) return;
 
 
   if (!actions.length) {
 
     list.innerHTML = `
       <div class="empty-actions">
-        Henüz aksiyon eklenmedi.
+        Henüz aksiyon maddesi eklenmedi.
       </div>
     `;
 
@@ -1138,133 +1303,255 @@ function renderActions(actions) {
   }
 
 
-  list.innerHTML = '';
+  list.innerHTML =
+    actions.map(action => `
 
+      <div class="action-item-modern">
 
-  actions.forEach(action => {
-
-    const el =
-      document.createElement('div');
-
-
-    el.className =
-      'action-item-modern';
-
-
-    el.innerHTML = `
-
-      <div class="action-check">
-        ✓
-      </div>
-
-      <div class="action-main">
-
-        <div class="action-content">
-          ${escapeHtml(action.content)}
+        <div class="action-check">
+          ✓
         </div>
 
-        <div class="action-meta">
-          👤 ${escapeHtml(action.owner || 'Atanmadı')}
-          ·
-          📅 ${escapeHtml(action.due_date || 'Tarih yok')}
+        <div class="action-main">
+
+          <div class="action-content">
+            ${escapeHtml(
+              action.content
+            )}
+          </div>
+
+          <div class="action-meta">
+            Sorumlu:
+            ${escapeHtml(
+              action.owner || '-'
+            )}
+            ·
+            Tarih:
+            ${escapeHtml(
+              action.due_date || '-'
+            )}
+          </div>
+
         </div>
 
       </div>
 
-    `;
-
-
-    list.appendChild(el);
-  });
+    `).join('');
 }
 
 
-/* =========================================================
-   PARTICIPANTS
-========================================================= */
+function addAction() {
 
-function renderParticipants(
-  participants
-) {
+  const content =
+    document
+      .getElementById(
+        'actionContent'
+      )
+      .value
+      .trim();
 
-  const list =
-    document.getElementById(
-      'participantsList'
+
+  if (!content) return;
+
+
+  const owner =
+    document
+      .getElementById(
+        'actionOwner'
+      )
+      .value
+      .trim();
+
+
+  const due_date =
+    document
+      .getElementById(
+        'actionDue'
+      )
+      .value;
+
+
+  send({
+
+    type: 'action_add',
+
+    content,
+
+    owner,
+
+    due_date
+
+  });
+
+
+  document
+    .getElementById(
+      'actionContent'
+    )
+    .value = '';
+
+
+  document
+    .getElementById(
+      'actionOwner'
+    )
+    .value = '';
+
+
+  document
+    .getElementById(
+      'actionDue'
+    )
+    .value = '';
+}
+
+
+// =========================================================
+// PARTICIPANTS MODAL
+// =========================================================
+
+function openParticipantsModal() {
+
+  const old =
+    document.querySelector(
+      '.modal'
     );
 
 
-  if (!list) {
-    return;
-  }
+  if (old) old.remove();
 
 
-  list.innerHTML = '';
+  const modal =
+    document.createElement('div');
 
 
-  participants.forEach(
-    participant => {
-
-      const item =
-        document.createElement('div');
+  modal.className =
+    'modal';
 
 
-      item.className =
-        'participant-item';
+  modal.innerHTML = `
+
+    <div class="modal-backdrop"></div>
 
 
-      item.innerHTML = `
+    <div class="modal-content">
 
-        <div class="participant-avatar">
-          ${escapeHtml(
-            participant.name
-              .charAt(0)
-              .toUpperCase()
-          )}
-        </div>
+      <div class="modal-header">
 
+        <div>
 
-        <div class="participant-info">
+          <div class="eyebrow">
+            TEAM
+          </div>
 
-          <strong>
-            ${escapeHtml(
-              participant.name
-            )}
-          </strong>
-
-          <span>
-            ${
-              participant.role === 'admin'
-                ? '👑 Admin'
-                : 'Katılımcı'
-            }
-          </span>
+          <h2>
+            Katılımcılar
+          </h2>
 
         </div>
 
-      `;
+
+        <button
+          class="close-button"
+          data-close
+        >
+          ×
+        </button>
+
+      </div>
 
 
-      list.appendChild(item);
-    }
+      <div>
+
+        ${
+          state.participants.length
+
+            ? state.participants.map(
+                participant => `
+
+                  <div
+                    class="participant-item"
+                  >
+
+                    <div
+                      class="participant-avatar"
+                    >
+                      ${initials(
+                        participant.name
+                      )}
+                    </div>
+
+                    <div
+                      class="participant-info"
+                    >
+
+                      <strong>
+                        ${escapeHtml(
+                          participant.name
+                        )}
+                      </strong>
+
+                      <span>
+
+                        ${
+                          participant.role ===
+                          'admin'
+
+                            ? '👑 Admin'
+
+                            : 'Katılımcı'
+                        }
+
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                `
+              ).join('')
+
+            : `
+
+                <p class="muted">
+                  Henüz başka katılımcı yok.
+                </p>
+
+              `
+        }
+
+      </div>
+
+    </div>
+
+  `;
+
+
+  document.body.appendChild(
+    modal
   );
 
 
-  const count =
-    document.getElementById(
-      'participantCount'
-    );
+  modal
+    .querySelector(
+      '[data-close]'
+    )
+    .onclick = () =>
+      modal.remove();
 
 
-  if (count) {
-    count.textContent =
-      participants.length;
-  }
+  modal
+    .querySelector(
+      '.modal-backdrop'
+    )
+    .onclick = () =>
+      modal.remove();
 }
 
 
-/* =========================================================
-   ADMIN PANEL
-========================================================= */
+// =========================================================
+// ADMIN PANEL
+// =========================================================
 
 function renderAdminPanel() {
 
@@ -1274,16 +1561,15 @@ function renderAdminPanel() {
     );
 
 
-  if (!panel) {
-    return;
-  }
+  if (!panel) return;
 
 
-  if (state.role !== 'admin') {
+  if (
+    state.role !== 'admin'
+  ) {
 
-    panel.classList.add(
-      'hidden'
-    );
+    panel.style.display =
+      'none';
 
     panel.innerHTML = '';
 
@@ -1291,21 +1577,17 @@ function renderAdminPanel() {
   }
 
 
-  panel.classList.remove(
-    'hidden'
-  );
+  panel.style.display =
+    'block';
 
 
   const participants =
-    state.board?.participants || [];
-
-
-  const otherParticipants =
-    participants.filter(
-      participant =>
-        participant.id !==
-        state.participantId
-    );
+    state.participants
+      .filter(
+        participant =>
+          participant.id !==
+          state.participantId
+      );
 
 
   panel.innerHTML = `
@@ -1315,7 +1597,7 @@ function renderAdminPanel() {
       <div>
 
         <div class="eyebrow">
-          ADMIN CONTROL
+          ADMIN CONTROLS
         </div>
 
         <h2>
@@ -1334,316 +1616,259 @@ function renderAdminPanel() {
     <div class="admin-actions">
 
       <button
-        id="adminReveal"
         class="admin-action"
+        id="adminReveal"
       >
 
-        <span class="admin-action-icon">
+        <div class="admin-action-icon">
           👁
-        </span>
+        </div>
 
-        <span>
+        <div>
 
           <strong>
             Kartları Aç
           </strong>
 
           <small>
-            Tüm kartları görünür yap
+            Tüm kartların içeriğini göster
           </small>
 
-        </span>
+        </div>
 
       </button>
 
 
       <button
-        id="transferAdmin"
         class="admin-action"
+        id="adminParticipants"
       >
 
-        <span class="admin-action-icon">
-          👑
-        </span>
+        <div class="admin-action-icon">
+          👥
+        </div>
 
-        <span>
+        <div>
 
           <strong>
-            Adminliği Devret
+            Katılımcılar
           </strong>
 
           <small>
-            Başka bir katılımcıyı admin yap
+            Ekip üyelerini görüntüle
           </small>
 
-        </span>
+        </div>
 
       </button>
 
 
       <button
-        id="closeBoard"
         class="admin-action danger-action"
+        id="adminClose"
       >
 
-        <span class="admin-action-icon">
-          ×
-        </span>
+        <div class="admin-action-icon">
+          ✓
+        </div>
 
-        <span>
+        <div>
 
           <strong>
-            Board'u Kapat
+            Retro'yu Bitir
           </strong>
 
           <small>
-            Retro'yu tamamla ve rapor oluştur
+            Board'u kapat ve rapor oluştur
           </small>
 
-        </span>
+        </div>
 
       </button>
 
     </div>
 
 
-    <div
-      id="transferArea"
-      class="transfer-area hidden"
-    >
+    <div class="transfer-area">
 
       <div class="transfer-title">
-        Yeni admini seç
+        👑 Adminliği devret
       </div>
 
-      <select
-        id="newAdminSelect"
-        class="modern-input"
-      >
 
-        <option value="">
-          Katılımcı seç
-        </option>
+      ${
+        participants.length
 
-        ${
-          otherParticipants.map(
-            participant => `
-              <option
-                value="${participant.id}"
+          ? `
+
+              <select
+                id="newAdmin"
+                class="modern-input"
               >
-                ${escapeHtml(
-                  participant.name
-                )}
-              </option>
+
+                <option value="">
+                  Katılımcı seçin...
+                </option>
+
+                ${
+                  participants.map(
+                    participant => `
+
+                      <option
+                        value="${participant.id}"
+                      >
+                        ${escapeHtml(
+                          participant.name
+                        )}
+                      </option>
+
+                    `
+                  ).join('')
+                }
+
+              </select>
+
+
+              <button
+                id="transferAdmin"
+                class="small-primary"
+              >
+                Devret
+              </button>
+
             `
-          ).join('')
-        }
 
-      </select>
+          : `
 
+              <span
+                style="
+                  color:#999;
+                  font-size:12px;
+                "
+              >
+                Adminliği devretmek için başka
+                bir katılımcı gerekli.
+              </span>
 
-      <button
-        id="confirmTransfer"
-        class="primary-button"
-      >
-        Adminliği Devret
-      </button>
+            `
+      }
 
     </div>
 
   `;
 
 
-  document.getElementById(
-    'adminReveal'
-  ).onclick = () => {
+  document
+    .getElementById(
+      'adminReveal'
+    )
+    .onclick = () => {
 
-    send({
-      type: 'reveal'
-    });
+      if (
+        confirm(
+          'Tüm kartlar açılacak. Emin misiniz?'
+        )
+      ) {
 
-  };
+        send({
+          type: 'reveal'
+        });
 
+      }
 
-  document.getElementById(
-    'closeBoard'
-  ).onclick = () => {
-
-    if (
-      confirm(
-        'Board kapatılacak ve rapor oluşturulacak. Emin misiniz?'
-      )
-    ) {
-
-      send({
-        type: 'board_close'
-      });
-
-    }
-
-  };
+    };
 
 
-  const transferArea =
+  document
+    .getElementById(
+      'adminParticipants'
+    )
+    .onclick =
+      () =>
+        openParticipantsModal();
+
+
+  document
+    .getElementById(
+      'adminClose'
+    )
+    .onclick = () => {
+
+      if (
+        confirm(
+          'Retro kapatılacak ve rapor oluşturulacak. Emin misiniz?'
+        )
+      ) {
+
+        send({
+          type: 'board_close'
+        });
+
+      }
+
+    };
+
+
+  const transferButton =
     document.getElementById(
-      'transferArea'
+      'transferAdmin'
     );
 
 
-  document.getElementById(
-    'transferAdmin'
-  ).onclick = () => {
+  if (transferButton) {
 
-    transferArea.classList.toggle(
-      'hidden'
-    );
+    transferButton.onclick =
+      () => {
 
-  };
-
-
-  document.getElementById(
-    'confirmTransfer'
-  ).onclick = () => {
-
-    const participantId =
-      document.getElementById(
-        'newAdminSelect'
-      ).value;
+        const select =
+          document.getElementById(
+            'newAdmin'
+          );
 
 
-    if (!participantId) {
+        if (!select.value) {
 
-      alert(
-        'Lütfen yeni admini seçin.'
-      );
-
-      return;
-    }
+          return alert(
+            'Önce bir katılımcı seçin.'
+          );
+        }
 
 
-    if (
-      confirm(
-        'Adminliği bu katılımcıya devretmek istediğinize emin misiniz?'
-      )
-    ) {
+        const selectedName =
+          select.options[
+            select.selectedIndex
+          ].text;
 
-      send({
 
-        type:
-          'transfer_admin',
+        if (
+          !confirm(
+            `${selectedName} artık admin olacak. Adminliği devretmek istediğinize emin misiniz?`
+          )
+        ) {
 
-        participant_id:
-          participantId
+          return;
+        }
 
-      });
 
-    }
+        send({
 
-  };
+          type:
+            'transfer_admin',
+
+          participant_id:
+            select.value
+
+        });
+
+      };
+
+  }
 }
 
 
-/* =========================================================
-   BOARD EVENTS
-========================================================= */
-
-function setupBoardEvents() {
-
-  document.getElementById(
-    'participantsBtn'
-  ).onclick = () => {
-
-    document.getElementById(
-      'participantsModal'
-    ).classList.remove(
-      'hidden'
-    );
-
-  };
-
-
-  document.getElementById(
-    'closeParticipants'
-  ).onclick = closeParticipants;
-
-
-  document.querySelector(
-    '.modal-backdrop'
-  ).onclick = closeParticipants;
-
-
-  document.getElementById(
-    'addActionBtn'
-  ).onclick = () => {
-
-    const content =
-      document.getElementById(
-        'actionContent'
-      ).value.trim();
-
-
-    if (!content) {
-      return;
-    }
-
-
-    const owner =
-      document.getElementById(
-        'actionOwner'
-      ).value.trim();
-
-
-    const due_date =
-      document.getElementById(
-        'actionDue'
-      ).value;
-
-
-    send({
-
-      type:
-        'action_add',
-
-      content,
-
-      owner,
-
-      due_date
-
-    });
-
-
-    document.getElementById(
-      'actionContent'
-    ).value = '';
-
-
-    document.getElementById(
-      'actionOwner'
-    ).value = '';
-
-
-    document.getElementById(
-      'actionDue'
-    ).value = '';
-
-  };
-}
-
-
-function closeParticipants() {
-
-  document.getElementById(
-    'participantsModal'
-  ).classList.add(
-    'hidden'
-  );
-}
-
-
-/* =========================================================
-   WEBSOCKET
-========================================================= */
+// =========================================================
+// WEBSOCKET
+// =========================================================
 
 function connectWs(
   boardId,
@@ -1655,7 +1880,7 @@ function connectWs(
   }
 
 
-  const protocol =
+  const proto =
     location.protocol === 'https:'
       ? 'wss'
       : 'ws';
@@ -1663,13 +1888,11 @@ function connectWs(
 
   const ws =
     new WebSocket(
-      `${protocol}://${location.host}/ws`
+      `${proto}://${location.host}/ws`
     );
 
 
-  state.ws =
-    ws;
-
+  state.ws = ws;
 
   state.status =
     initialStatus;
@@ -1679,14 +1902,11 @@ function connectWs(
 
     send({
 
-      type:
-        'join',
+      type: 'join',
 
-      board_id:
-        boardId,
+      board_id: boardId,
 
-      name:
-        state.name
+      name: state.name
 
     });
 
@@ -1697,13 +1917,15 @@ function connectWs(
     async event => {
 
       const msg =
-        JSON.parse(
-          event.data
-        );
+        JSON.parse(event.data);
 
 
       switch (msg.type) {
 
+
+        // ---------------------------------------------
+        // JOINED
+        // ---------------------------------------------
 
         case 'joined':
 
@@ -1712,13 +1934,19 @@ function connectWs(
 
 
           state.role =
-            msg.role;
+            msg.role || 'participant';
 
+
+          await refreshBoardData();
 
           renderAdminPanel();
 
           break;
 
+
+        // ---------------------------------------------
+        // PARTICIPANT JOINED
+        // ---------------------------------------------
 
         case 'participant_joined':
 
@@ -1727,9 +1955,35 @@ function connectWs(
           break;
 
 
+        // ---------------------------------------------
+        // CARD
+        // ---------------------------------------------
+
         case 'card_added':
 
         case 'vote_changed':
+
+          await refreshBoardData();
+
+          break;
+
+
+        // ---------------------------------------------
+        // COMMENTS
+        // ---------------------------------------------
+
+        case 'comment_added':
+
+        case 'comment_deleted':
+
+          await refreshBoardData();
+
+          break;
+
+
+        // ---------------------------------------------
+        // ACTION
+        // ---------------------------------------------
 
         case 'action_added':
 
@@ -1738,73 +1992,56 @@ function connectWs(
           break;
 
 
+        // ---------------------------------------------
+        // REVEAL
+        // ---------------------------------------------
+
         case 'revealed':
 
           state.status =
             'revealed';
 
 
-          const badge =
-            document.getElementById(
-              'statusBadge'
-            );
-
-
-          if (badge) {
-
-            badge.textContent =
-              statusLabel(
-                'revealed'
-              );
-
-          }
+          updateStatusBadge(
+            'revealed'
+          );
 
 
           await refreshBoardData();
 
           break;
 
+
+        // ---------------------------------------------
+        // ADMIN CHANGED
+        // ---------------------------------------------
 
         case 'admin_changed':
 
-          await refreshBoardData();
-
-
-          if (
-            msg.admin_id ===
-            state.participantId
-          ) {
-
-            state.role =
-              'admin';
-
-          } else {
-
-            state.role =
-              'participant';
-
-          }
-
-
-          renderAdminPanel();
-
-          renderParticipants(
-            state.board.participants
-          );
-
-          break;
-
-
-        case 'admin_transferred':
+          /*
+           * Yeni admin bizsek admin,
+           * değilsek participant.
+           */
 
           state.role =
-            'participant';
+            msg.admin_id ===
+            state.participantId
 
+              ? 'admin'
+
+              : 'participant';
+
+
+          await refreshBoardData();
 
           renderAdminPanel();
 
           break;
 
+
+        // ---------------------------------------------
+        // CLOSE
+        // ---------------------------------------------
 
         case 'board_closed':
 
@@ -1817,6 +2054,10 @@ function connectWs(
 
           break;
 
+
+        // ---------------------------------------------
+        // ERROR
+        // ---------------------------------------------
 
         case 'error':
 
@@ -1839,102 +2080,8 @@ function connectWs(
     );
 
   };
-
 }
 
-
-/* =========================================================
-   REFRESH
-========================================================= */
-
-async function refreshBoardData() {
-
-  const res =
-    await fetch(
-      `/api/boards/${state.boardId}`
-    );
-
-
-  if (!res.ok) {
-    return;
-  }
-
-
-  const board =
-    await res.json();
-
-
-  state.board =
-    board;
-
-
-  state.status =
-    board.status;
-
-
-  state.columns =
-    board.columns;
-
-
-  renderCards(
-    board.cards,
-    board.status
-  );
-
-
-  renderActions(
-    board.actions
-  );
-
-
-  renderParticipants(
-    board.participants
-  );
-
-
-  /*
-   * Rolü DB'den tekrar doğruluyoruz.
-   */
-
-  const me =
-    board.participants.find(
-      participant =>
-        participant.id ===
-        state.participantId
-    );
-
-
-  if (me) {
-
-    state.role =
-      me.role;
-
-  }
-
-
-  renderAdminPanel();
-
-
-  const badge =
-    document.getElementById(
-      'statusBadge'
-    );
-
-
-  if (badge) {
-
-    badge.textContent =
-      statusLabel(
-        board.status
-      );
-
-  }
-}
-
-
-/* =========================================================
-   SEND
-========================================================= */
 
 function send(payload) {
 
@@ -1945,20 +2092,131 @@ function send(payload) {
   ) {
 
     state.ws.send(
-      JSON.stringify(
-        payload
-      )
+      JSON.stringify(payload)
     );
-
   }
 }
 
 
-/* =========================================================
-   REPORT
-========================================================= */
+// =========================================================
+// REFRESH
+// =========================================================
 
-async function renderReport(token) {
+async function refreshBoardData() {
+
+  if (!state.boardId) return;
+
+
+  const res =
+    await fetch(
+      `/api/boards/${state.boardId}`
+    );
+
+
+  if (!res.ok) return;
+
+
+  const board =
+    await res.json();
+
+
+  state.status =
+    board.status;
+
+
+  state.columns =
+    board.columns;
+
+
+  state.participants =
+    board.participants || [];
+
+
+  /*
+   * Refresh sonrasında rolümüzü DB'den
+   * tekrar tespit ediyoruz.
+   */
+
+  const me =
+    state.participants.find(
+      participant =>
+        participant.id ===
+        state.participantId
+    );
+
+
+  if (me) {
+
+    state.role =
+      me.role;
+  }
+
+
+  renderColumns(
+    board.columns,
+    board.cards,
+    board.status
+  );
+
+
+  renderActions(
+    board.actions || []
+  );
+
+
+  updateStatusBadge(
+    board.status
+  );
+
+
+  updateParticipantCount();
+
+
+  renderAdminPanel();
+}
+
+
+function updateStatusBadge(
+  status
+) {
+
+  const badge =
+    document.getElementById(
+      'statusBadge'
+    );
+
+
+  if (badge) {
+
+    badge.textContent =
+      statusLabel(status);
+  }
+}
+
+
+function updateParticipantCount() {
+
+  const count =
+    document.getElementById(
+      'participantCount'
+    );
+
+
+  if (count) {
+
+    count.textContent =
+      state.participants.length;
+  }
+}
+
+
+// =========================================================
+// REPORT
+// =========================================================
+
+async function renderReport(
+  token
+) {
 
   const res =
     await fetch(
@@ -1970,7 +2228,26 @@ async function renderReport(token) {
 
     app.innerHTML = `
       <div class="empty-page">
-        <h2>Rapor bulunamadı.</h2>
+
+        <div class="empty-icon">
+          !
+        </div>
+
+        <h2>
+          Rapor bulunamadı
+        </h2>
+
+        <p class="muted">
+          Bu rapor mevcut değil.
+        </p>
+
+        <button
+          class="primary-button"
+          onclick="location.hash='#/'"
+        >
+          Ana sayfa
+        </button>
+
       </div>
     `;
 
@@ -1982,13 +2259,11 @@ async function renderReport(token) {
     await res.json();
 
 
-  app.innerHTML = '';
+  app.innerHTML = `
 
-  app.appendChild(h(`
+    <main class="report-page">
 
-    <div class="report-page">
-
-      <div class="report-header">
+      <header class="report-header">
 
         <div>
 
@@ -2002,114 +2277,158 @@ async function renderReport(token) {
             )}
           </h1>
 
+          <p class="muted">
+            Retro tamamlandı.
+          </p>
+
         </div>
 
 
         <a
           href="/api/reports/${token}/pdf"
-          class="primary-button"
         >
-          PDF İndir
+
+          <button
+            class="primary-button"
+          >
+            PDF İndir
+          </button>
+
         </a>
 
-      </div>
+      </header>
 
 
-      <div class="stats-grid">
+      <section class="stats-grid">
 
         <div class="stat-card">
+
           <strong>
             ${report.stats.participant_count}
           </strong>
-          <span>Katılımcı</span>
+
+          <span>
+            Katılımcı
+          </span>
+
         </div>
 
+
         <div class="stat-card">
+
           <strong>
             ${report.stats.card_count}
           </strong>
-          <span>Kart</span>
+
+          <span>
+            Kart
+          </span>
+
         </div>
 
+
         <div class="stat-card">
+
           <strong>
             ${report.stats.vote_count}
           </strong>
-          <span>Oy</span>
+
+          <span>
+            Oy
+          </span>
+
         </div>
 
+
         <div class="stat-card">
+
           <strong>
             ${report.stats.action_count}
           </strong>
-          <span>Aksiyon</span>
+
+          <span>
+            Aksiyon
+          </span>
+
         </div>
 
-      </div>
+      </section>
 
 
-      <div class="report-columns">
+      <section
+        class="report-columns"
+      >
 
-        ${report.columns.map(
-          column => {
+        ${
+          report.columns.map(
+            column => {
 
-            const items =
-              report.cardsByColumn[
-                column.id
-              ] || [];
+              const items =
+                report.cardsByColumn[
+                  column.id
+                ] || [];
 
 
-            return `
+              return `
 
-              <section class="report-column">
+                <div class="report-column">
 
-                <h2>
-                  ${escapeHtml(
-                    column.name
-                  )}
-                </h2>
+                  <h2>
+                    ${escapeHtml(
+                      column.name
+                    )}
+                  </h2>
 
-                ${
-                  items.length
 
-                    ? items.map(
-                        item => `
+                  ${
+                    items.length
 
-                          <article class="report-card">
+                      ? items.map(
+                          item => `
 
-                            <div>
+                            <div
+                              class="report-card"
+                            >
+
                               ${escapeHtml(
                                 item.content
                               )}
+
+                              <small>
+
+                                ${escapeHtml(
+                                  item.author
+                                )}
+
+                                ·
+
+                                👍
+                                ${item.votes}
+
+                              </small>
+
                             </div>
 
-                            <small>
-                              ${escapeHtml(
-                                item.author
-                              )}
-                              · 👍
-                              ${item.votes}
-                            </small>
+                          `
+                        ).join('')
 
-                          </article>
+                      : `
+
+                          <p class="muted">
+                            Kart yok
+                          </p>
 
                         `
-                      ).join('')
+                  }
 
-                    : `
-                      <p class="muted">
-                        Kart yok
-                      </p>
-                    `
-                }
+                </div>
 
-              </section>
+              `;
+            }
+          ).join('')
+        }
 
-            `;
-          }
-        ).join('')}
-
-      </div>
+      </section>
 
 
       <section class="report-actions">
@@ -2122,31 +2441,47 @@ async function renderReport(token) {
           Aksiyon Maddeleri
         </h2>
 
+
         ${
           report.actions.length
 
             ? report.actions.map(
                 action => `
 
-                  <div class="action-item-modern">
+                  <div
+                    class="action-item-modern"
+                  >
 
-                    <div class="action-check">
+                    <div
+                      class="action-check"
+                    >
                       ✓
                     </div>
 
-                    <div>
+                    <div
+                      class="action-main"
+                    >
 
-                      <strong>
+                      <div
+                        class="action-content"
+                      >
                         ${escapeHtml(
                           action.content
                         )}
-                      </strong>
+                      </div>
 
-                      <div class="action-meta">
-                        👤 ${escapeHtml(
+                      <div
+                        class="action-meta"
+                      >
+                        Sorumlu:
+                        ${escapeHtml(
                           action.owner || '-'
                         )}
-                        · 📅 ${escapeHtml(
+
+                        ·
+
+                        Tarih:
+                        ${escapeHtml(
                           action.due_date || '-'
                         )}
                       </div>
@@ -2159,29 +2494,31 @@ async function renderReport(token) {
               ).join('')
 
             : `
-              <p class="muted">
-                Aksiyon eklenmedi.
-              </p>
-            `
+
+                <p class="muted">
+                  Aksiyon eklenmedi.
+                </p>
+
+              `
         }
 
       </section>
 
 
       <p class="report-note">
-        Bu rapor board silinse bile paylaşılabilir
-        link üzerinden erişilebilir.
+        Bu rapor, board silindikten sonra da
+        paylaşılabilir link üzerinden erişilebilir.
       </p>
 
-    </div>
+    </main>
 
-  `));
+  `;
 }
 
 
-/* =========================================================
-   START
-========================================================= */
+// =========================================================
+// START
+// =========================================================
 
 navigate();
 ```
