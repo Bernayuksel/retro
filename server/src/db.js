@@ -14,12 +14,6 @@ const db = new DatabaseSync(path.join(DATA_DIR, 'retro.db'));
 db.exec('PRAGMA journal_mode = WAL;');
 db.exec('PRAGMA foreign_keys = ON;');
 
-/*
-  ============================================================
-  DATABASE
-  ============================================================
-*/
-
 db.exec(`
 CREATE TABLE IF NOT EXISTS boards (
   id TEXT PRIMARY KEY,
@@ -35,15 +29,14 @@ CREATE TABLE IF NOT EXISTS participants (
   id TEXT PRIMARY KEY,
   board_id TEXT NOT NULL,
   name TEXT NOT NULL,
-
-  -- admin | participant
   role TEXT NOT NULL DEFAULT 'participant',
-
   joined_at INTEGER NOT NULL,
 
   FOREIGN KEY (board_id)
     REFERENCES boards(id)
-    ON DELETE CASCADE
+    ON DELETE CASCADE,
+
+  CHECK (role IN ('admin', 'participant'))
 );
 
 CREATE TABLE IF NOT EXISTS cards (
@@ -69,7 +62,27 @@ CREATE TABLE IF NOT EXISTS votes (
     REFERENCES cards(id)
     ON DELETE CASCADE,
 
+  FOREIGN KEY (participant_id)
+    REFERENCES participants(id)
+    ON DELETE CASCADE,
+
   UNIQUE(card_id, participant_id)
+);
+
+CREATE TABLE IF NOT EXISTS comments (
+  id TEXT PRIMARY KEY,
+  card_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL,
+  content TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+
+  FOREIGN KEY (card_id)
+    REFERENCES cards(id)
+    ON DELETE CASCADE,
+
+  FOREIGN KEY (participant_id)
+    REFERENCES participants(id)
+    ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS actions (
@@ -96,125 +109,67 @@ CREATE TABLE IF NOT EXISTS reports (
 );
 `);
 
-
 /*
-  ============================================================
-  MIGRATION
-  ============================================================
+ * Eski veritabanları için migration
+ *
+ * Eski participants tablosunda role yoksa ekliyoruz.
+ */
 
-  Eğer eski database daha önce oluşturulduysa participants
-  tablosunda role kolonu olmayabilir.
+const participantColumns = db
+  .prepare(`PRAGMA table_info(participants)`)
+  .all();
 
-  Bu yüzden uygulama ilk açıldığında kontrol ediyoruz.
-*/
+const hasRoleColumn = participantColumns.some(
+  column => column.name === 'role'
+);
 
-function addRoleColumnIfNeeded() {
-  const columns = db
-    .prepare(`PRAGMA table_info(participants)`)
-    .all();
-
-  const hasRole = columns.some(column => column.name === 'role');
-
-  if (!hasRole) {
-    db.exec(`
-      ALTER TABLE participants
-      ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'
-    `);
-  }
+if (!hasRoleColumn) {
+  db.exec(`
+    ALTER TABLE participants
+    ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'
+  `);
 }
 
-addRoleColumnIfNeeded();
-
-
 /*
-  ============================================================
-  DATA NORMALIZATION
-  ============================================================
+ * Eski board'larda admin yoksa,
+ * o board'a ilk katılan kişiyi admin yap.
+ */
 
-  Eski board'larda admin yoksa ilk katılımcıyı admin yapıyoruz.
+const boards = db
+  .prepare(`SELECT id FROM boards`)
+  .all();
 
-  Böylece mevcut database'in varsa tamamen silinmesine gerek
-  kalmaz.
-*/
-
-function ensureOneAdminPerBoard() {
-  const boards = db
-    .prepare(`SELECT id FROM boards`)
-    .all();
-
-  const getAdmin = db.prepare(`
-    SELECT id
-    FROM participants
-    WHERE board_id = ?
+for (const board of boards) {
+  const adminExists = db
+    .prepare(`
+      SELECT id
+      FROM participants
+      WHERE board_id = ?
       AND role = 'admin'
-    LIMIT 1
-  `);
+      LIMIT 1
+    `)
+    .get(board.id);
 
-  const getFirstParticipant = db.prepare(`
-    SELECT id
-    FROM participants
-    WHERE board_id = ?
-    ORDER BY joined_at ASC
-    LIMIT 1
-  `);
+  if (!adminExists) {
+    const firstParticipant = db
+      .prepare(`
+        SELECT id
+        FROM participants
+        WHERE board_id = ?
+        ORDER BY joined_at ASC
+        LIMIT 1
+      `)
+      .get(board.id);
 
-  const makeAdmin = db.prepare(`
-    UPDATE participants
-    SET role = 'admin'
-    WHERE id = ?
-  `);
-
-  for (const board of boards) {
-    const admin = getAdmin.get(board.id);
-
-    if (!admin) {
-      const firstParticipant = getFirstParticipant.get(board.id);
-
-      if (firstParticipant) {
-        makeAdmin.run(firstParticipant.id);
-      }
+    if (firstParticipant) {
+      db.prepare(`
+        UPDATE participants
+        SET role = 'admin'
+        WHERE id = ?
+      `).run(firstParticipant.id);
     }
   }
 }
 
-ensureOneAdminPerBoard();
-
-
-/*
-  ============================================================
-  HELPER FUNCTIONS
-  ============================================================
-*/
-
-function getAdmin(boardId) {
-  return db.prepare(`
-    SELECT id, name, role
-    FROM participants
-    WHERE board_id = ?
-      AND role = 'admin'
-    LIMIT 1
-  `).get(boardId);
-}
-
-function isAdmin(participantId, boardId) {
-  const participant = db.prepare(`
-    SELECT id
-    FROM participants
-    WHERE id = ?
-      AND board_id = ?
-      AND role = 'admin'
-  `).get(participantId, boardId);
-
-  return !!participant;
-}
-
-
-/*
-  Bu fonksiyonlar index.js tarafından kullanılacak.
-*/
-
 module.exports = db;
-
-module.exports.getAdmin = getAdmin;
-module.exports.isAdmin = isAdmin;
 ```
