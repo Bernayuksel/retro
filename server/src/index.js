@@ -20,15 +20,13 @@ const wss = new WebSocketServer({
   path: '/ws'
 });
 
-
-/*
-============================================================
-WEBSOCKET CONNECTIONS
-============================================================
-*/
-
+// boardId -> Set<WebSocket>
 const boardSockets = new Map();
 
+
+// =========================================================
+// HELPERS
+// =========================================================
 
 function broadcast(boardId, payload) {
   const sockets = boardSockets.get(boardId);
@@ -45,52 +43,36 @@ function broadcast(boardId, payload) {
 }
 
 
-/*
-============================================================
-HELPERS
-============================================================
-*/
-
-function getParticipant(participantId, boardId) {
-  return db.prepare(`
-    SELECT id, board_id, name, role
-    FROM participants
-    WHERE id = ?
-      AND board_id = ?
-  `).get(participantId, boardId);
+function getParticipant(participantId) {
+  return db
+    .prepare(`
+      SELECT *
+      FROM participants
+      WHERE id = ?
+    `)
+    .get(participantId);
 }
 
 
 function isAdmin(participantId, boardId) {
-  const participant = getParticipant(participantId, boardId);
+  const participant = db
+    .prepare(`
+      SELECT role
+      FROM participants
+      WHERE id = ?
+      AND board_id = ?
+    `)
+    .get(participantId, boardId);
 
-  return participant && participant.role === 'admin';
+  return participant?.role === 'admin';
 }
 
 
-function sendError(ws, message) {
-  ws.send(JSON.stringify({
-    type: 'error',
-    message
-  }));
-}
-
-
-/*
-============================================================
-REST API
-============================================================
-*/
-
-
-/*
-------------------------------------------------------------
-CREATE BOARD
-------------------------------------------------------------
-*/
+// =========================================================
+// CREATE BOARD
+// =========================================================
 
 app.post('/api/boards', (req, res) => {
-
   const {
     title,
     columns,
@@ -104,7 +86,7 @@ app.post('/api/boards', (req, res) => {
     columns.length > 5
   ) {
     return res.status(400).json({
-      error: 'Geçersiz başlık veya kolon listesi (1-5 kolon)'
+      error: 'Geçersiz başlık veya kolon listesi'
     });
   }
 
@@ -116,7 +98,8 @@ app.post('/api/boards', (req, res) => {
   }));
 
   db.prepare(`
-    INSERT INTO boards (
+    INSERT INTO boards
+    (
       id,
       title,
       columns,
@@ -141,19 +124,19 @@ app.post('/api/boards', (req, res) => {
 });
 
 
-/*
-------------------------------------------------------------
-GET BOARD
-------------------------------------------------------------
-*/
+// =========================================================
+// GET BOARD
+// =========================================================
 
 app.get('/api/boards/:id', (req, res) => {
 
-  const board = db.prepare(`
-    SELECT *
-    FROM boards
-    WHERE id = ?
-  `).get(req.params.id);
+  const board = db
+    .prepare(`
+      SELECT *
+      FROM boards
+      WHERE id = ?
+    `)
+    .get(req.params.id);
 
   if (!board) {
     return res.status(404).json({
@@ -163,44 +146,86 @@ app.get('/api/boards/:id', (req, res) => {
 
   const columns = JSON.parse(board.columns);
 
+  const cards = db
+    .prepare(`
+      SELECT
+        c.*,
 
-  const cards = db.prepare(`
-    SELECT
-      c.*,
+        (
+          SELECT COUNT(*)
+          FROM votes v
+          WHERE v.card_id = c.id
+        ) AS vote_count
 
-      (
-        SELECT COUNT(*)
-        FROM votes v
-        WHERE v.card_id = c.id
-      ) AS vote_count
+      FROM cards c
 
-    FROM cards c
-
-    WHERE c.board_id = ?
-  `).all(board.id);
-
-
-  const actions = db.prepare(`
-    SELECT *
-    FROM actions
-    WHERE board_id = ?
-  `).all(board.id);
+      WHERE c.board_id = ?
+    `)
+    .all(board.id);
 
 
-  const participants = db.prepare(`
-    SELECT
-      id,
-      name,
-      role
-    FROM participants
-    WHERE board_id = ?
-    ORDER BY joined_at ASC
-  `).all(board.id);
+  const comments = db
+    .prepare(`
+      SELECT
+        c.id,
+        c.card_id,
+        c.content,
+        c.created_at,
+        p.name AS author_name
+
+      FROM comments c
+
+      JOIN participants p
+        ON p.id = c.participant_id
+
+      WHERE c.card_id IN (
+        SELECT id
+        FROM cards
+        WHERE board_id = ?
+      )
+
+      ORDER BY c.created_at ASC
+    `)
+    .all(board.id);
 
 
-  const admin = participants.find(
-    participant => participant.role === 'admin'
-  );
+  const actions = db
+    .prepare(`
+      SELECT *
+      FROM actions
+      WHERE board_id = ?
+      ORDER BY created_at ASC
+    `)
+    .all(board.id);
+
+
+  const participants = db
+    .prepare(`
+      SELECT
+        id,
+        name,
+        role,
+        joined_at
+
+      FROM participants
+
+      WHERE board_id = ?
+
+      ORDER BY joined_at ASC
+    `)
+    .all(board.id);
+
+
+  const commentsByCard = {};
+
+  for (const comment of comments) {
+
+    if (!commentsByCard[comment.card_id]) {
+      commentsByCard[comment.card_id] = [];
+    }
+
+    commentsByCard[comment.card_id].push(comment);
+  }
 
 
   res.json({
@@ -233,33 +258,35 @@ app.get('/api/boards/:id', (req, res) => {
           : card.author_name,
 
       vote_count:
-        card.vote_count
+        card.vote_count,
+
+      comments:
+        board.status === 'open'
+          ? []
+          : commentsByCard[card.id] || []
 
     })),
 
     actions,
 
-    participants,
-
-    admin: admin || null
-
+    participants
   });
 });
 
 
-/*
-============================================================
-REPORT
-============================================================
-*/
+// =========================================================
+// REPORT
+// =========================================================
 
 app.get('/api/reports/:token', (req, res) => {
 
-  const report = db.prepare(`
-    SELECT *
-    FROM reports
-    WHERE token = ?
-  `).get(req.params.token);
+  const report = db
+    .prepare(`
+      SELECT *
+      FROM reports
+      WHERE token = ?
+    `)
+    .get(req.params.token);
 
   if (!report) {
     return res.status(404).json({
@@ -275,16 +302,18 @@ app.get('/api/reports/:token', (req, res) => {
 
 app.get('/api/reports/:token/pdf', (req, res) => {
 
-  const report = db.prepare(`
-    SELECT *
-    FROM reports
-    WHERE token = ?
-  `).get(req.params.token);
+  const report = db
+    .prepare(`
+      SELECT *
+      FROM reports
+      WHERE token = ?
+    `)
+    .get(req.params.token);
 
   if (!report) {
-    return res.status(404).send(
-      'Rapor bulunamadı'
-    );
+    return res
+      .status(404)
+      .send('Rapor bulunamadı');
   }
 
   res.download(
@@ -294,16 +323,13 @@ app.get('/api/reports/:token/pdf', (req, res) => {
 });
 
 
-/*
-============================================================
-WEBSOCKET
-============================================================
-*/
+// =========================================================
+// WEBSOCKET
+// =========================================================
 
 wss.on('connection', ws => {
 
   let currentBoardId = null;
-
   let currentParticipantId = null;
 
 
@@ -312,66 +338,62 @@ wss.on('connection', ws => {
     let msg;
 
     try {
-
       msg = JSON.parse(raw);
-
     } catch {
-
       return;
-
     }
 
 
-    /*
-    ========================================================
-    JOIN
-    ========================================================
-    */
+    // =====================================================
+    // JOIN
+    // =====================================================
 
     if (msg.type === 'join') {
 
-      const board = db.prepare(`
-        SELECT *
-        FROM boards
-        WHERE id = ?
-      `).get(msg.board_id);
+      const board = db
+        .prepare(`
+          SELECT *
+          FROM boards
+          WHERE id = ?
+        `)
+        .get(msg.board_id);
 
 
       if (!board) {
 
-        return sendError(
-          ws,
-          'Board bulunamadı'
+        return ws.send(
+          JSON.stringify({
+            type: 'error',
+            message: 'Board bulunamadı'
+          })
         );
-
       }
 
 
       currentBoardId =
         msg.board_id;
 
-
       currentParticipantId =
         uuidv4();
 
 
       /*
-      Board'da admin var mı?
-      */
+       * Board'da admin var mı?
+       */
 
       const existingAdmin =
-        db.prepare(`
-          SELECT id
-          FROM participants
-          WHERE board_id = ?
+        db
+          .prepare(`
+            SELECT id
+            FROM participants
+
+            WHERE board_id = ?
             AND role = 'admin'
-          LIMIT 1
-        `).get(currentBoardId);
 
+            LIMIT 1
+          `)
+          .get(currentBoardId);
 
-      /*
-      Admin yoksa ilk katılan kişi admin.
-      */
 
       const role =
         existingAdmin
@@ -380,7 +402,8 @@ wss.on('connection', ws => {
 
 
       db.prepare(`
-        INSERT INTO participants (
+        INSERT INTO participants
+        (
           id,
           board_id,
           name,
@@ -390,31 +413,19 @@ wss.on('connection', ws => {
 
         VALUES (?, ?, ?, ?, ?)
       `).run(
-
         currentParticipantId,
-
         currentBoardId,
-
         msg.name || 'Anonim',
-
         role,
-
         Date.now()
-
       );
 
 
-      /*
-      WebSocket listesine ekle
-      */
-
       if (!boardSockets.has(currentBoardId)) {
-
         boardSockets.set(
           currentBoardId,
           new Set()
         );
-
       }
 
 
@@ -423,139 +434,118 @@ wss.on('connection', ws => {
         .add(ws);
 
 
-      /*
-      Kullanıcıya kendi rolünü gönder.
-      */
+      ws.send(
+        JSON.stringify({
 
-      ws.send(JSON.stringify({
+          type: 'joined',
 
-        type: 'joined',
+          participant_id:
+            currentParticipantId,
 
-        participant_id:
-          currentParticipantId,
+          role
 
-        role
+        })
+      );
 
-      }));
-
-
-      /*
-      Diğer kullanıcılara bildir.
-      */
 
       broadcast(
         currentBoardId,
         {
           type: 'participant_joined',
-
-          name:
-            msg.name || 'Anonim',
-
+          name: msg.name || 'Anonim',
           role
         }
       );
 
-
       return;
     }
 
-
-    /*
-    Join olmadan işlem yapılmasın.
-    */
 
     if (!currentBoardId) {
       return;
     }
 
 
-    /*
-    ========================================================
-    ACTIONS
-    ========================================================
-    */
-
-    switch (msg.type) {
+    const participant =
+      getParticipant(
+        currentParticipantId
+      );
 
 
-      /*
-      ------------------------------------------------------
-      CARD ADD
-      ------------------------------------------------------
-      */
+    // =====================================================
+    // CARD ADD
+    // =====================================================
 
-      case 'card_add': {
+    if (msg.type === 'card_add') {
 
-        if (!msg.content || !msg.column_id) {
-          return;
-        }
+      const id = uuidv4();
 
 
-        const id =
-          uuidv4();
-
-
-        db.prepare(`
-          INSERT INTO cards (
-            id,
-            board_id,
-            column_id,
-            content,
-            author_name,
-            is_anonymous,
-            created_at
-          )
-
-          VALUES (?, ?, ?, ?, ?, ?, ?)
-        `).run(
-
+      db.prepare(`
+        INSERT INTO cards
+        (
           id,
+          board_id,
+          column_id,
+          content,
+          author_name,
+          is_anonymous,
+          created_at
+        )
 
-          currentBoardId,
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `).run(
 
-          msg.column_id,
+        id,
 
-          msg.content,
+        currentBoardId,
 
-          msg.anonymous
-            ? null
-            : (msg.author_name || null),
+        msg.column_id,
 
-          msg.anonymous
-            ? 1
-            : 0,
+        msg.content,
 
-          Date.now()
+        msg.anonymous
+          ? null
+          : (
+              msg.author_name ||
+              participant?.name ||
+              'Anonim'
+            ),
 
-        );
+        msg.anonymous ? 1 : 0,
 
-
-        broadcast(
-          currentBoardId,
-          {
-            type: 'card_added',
-            id,
-            column_id: msg.column_id
-          }
-        );
+        Date.now()
+      );
 
 
-        break;
-      }
+      broadcast(
+        currentBoardId,
+        {
+          type: 'card_added',
+          id
+        }
+      );
+
+      return;
+    }
 
 
-      /*
-      ------------------------------------------------------
-      VOTE ADD
-      ------------------------------------------------------
-      */
+    // =====================================================
+    // VOTE
+    // =====================================================
 
-      case 'vote_add': {
+    if (
+      msg.type === 'vote_add' ||
+      msg.type === 'vote_remove'
+    ) {
+
+      if (msg.type === 'vote_add') {
 
         try {
 
           db.prepare(`
-            INSERT INTO votes (
+            INSERT INTO votes
+            (
               id,
               card_id,
               participant_id
@@ -563,401 +553,420 @@ wss.on('connection', ws => {
 
             VALUES (?, ?, ?)
           `).run(
-
             uuidv4(),
-
             msg.card_id,
-
             currentParticipantId
-
-          );
-
-
-          broadcast(
-            currentBoardId,
-            {
-              type: 'vote_changed',
-              card_id: msg.card_id
-            }
           );
 
         } catch {
-
-          // Kullanıcı zaten oy vermiş.
+          // Zaten oy verilmiş
         }
 
-        break;
-      }
-
-
-      /*
-      ------------------------------------------------------
-      VOTE REMOVE
-      ------------------------------------------------------
-      */
-
-      case 'vote_remove': {
+      } else {
 
         db.prepare(`
           DELETE FROM votes
 
           WHERE card_id = ?
-
-            AND participant_id = ?
+          AND participant_id = ?
         `).run(
-
           msg.card_id,
-
           currentParticipantId
-
         );
-
-
-        broadcast(
-          currentBoardId,
-          {
-            type: 'vote_changed',
-            card_id: msg.card_id
-          }
-        );
-
-
-        break;
       }
 
 
-      /*
-      ------------------------------------------------------
-      ACTION ADD
-      ------------------------------------------------------
-      */
+      broadcast(
+        currentBoardId,
+        {
+          type: 'vote_changed',
+          card_id: msg.card_id
+        }
+      );
 
-      case 'action_add': {
-
-        const id =
-          uuidv4();
+      return;
+    }
 
 
+    // =====================================================
+    // COMMENT ADD
+    // =====================================================
+
+    if (msg.type === 'comment_add') {
+
+      const content =
+        String(msg.content || '').trim();
+
+
+      if (!content) {
+        return;
+      }
+
+
+      const card =
         db.prepare(`
-          INSERT INTO actions (
-            id,
-            board_id,
-            content,
-            owner,
-            due_date,
-            status,
-            created_at
-          )
+          SELECT id
+          FROM cards
 
-          VALUES (?, ?, ?, ?, ?, 'open', ?)
-        `).run(
+          WHERE id = ?
+          AND board_id = ?
+        `).get(
+          msg.card_id,
+          currentBoardId
+        );
 
+
+      if (!card) {
+        return;
+      }
+
+
+      const id = uuidv4();
+
+
+      db.prepare(`
+        INSERT INTO comments
+        (
           id,
+          card_id,
+          participant_id,
+          content,
+          created_at
+        )
 
-          currentBoardId,
+        VALUES (?, ?, ?, ?, ?)
+      `).run(
 
-          msg.content || null,
+        id,
 
-          msg.owner || null,
+        msg.card_id,
 
-          msg.due_date || null,
+        currentParticipantId,
 
-          Date.now()
+        content,
 
-        );
-
-
-        broadcast(
-          currentBoardId,
-          {
-            type: 'action_added',
-            id
-          }
-        );
+        Date.now()
+      );
 
 
-        break;
+      broadcast(
+        currentBoardId,
+        {
+          type: 'comment_added',
+          card_id: msg.card_id
+        }
+      );
+
+      return;
+    }
+
+
+    // =====================================================
+    // COMMENT DELETE
+    // =====================================================
+
+    if (msg.type === 'comment_delete') {
+
+      const comment =
+        db.prepare(`
+          SELECT *
+          FROM comments
+
+          WHERE id = ?
+        `).get(msg.comment_id);
+
+
+      if (!comment) {
+        return;
       }
 
 
-      /*
-      ======================================================
-      REVEAL
-      ======================================================
-      */
+      const allowed =
+        comment.participant_id ===
+          currentParticipantId ||
 
-      case 'reveal': {
-
-        /*
-        SADECE ADMIN
-        */
-
-        if (
-          !isAdmin(
-            currentParticipantId,
-            currentBoardId
-          )
-        ) {
-
-          return sendError(
-            ws,
-            'Bu işlem sadece admin tarafından yapılabilir.'
-          );
-
-        }
-
-
-        db.prepare(`
-          UPDATE boards
-
-          SET status = 'revealed'
-
-          WHERE id = ?
-        `).run(
+        isAdmin(
+          currentParticipantId,
           currentBoardId
         );
 
 
-        broadcast(
-          currentBoardId,
-          {
-            type: 'revealed'
-          }
-        );
-
-
-        break;
+      if (!allowed) {
+        return;
       }
 
 
-      /*
-      ======================================================
-      TRANSFER ADMIN
-      ======================================================
-      */
+      db.prepare(`
+        DELETE FROM comments
+        WHERE id = ?
+      `).run(msg.comment_id);
 
-      case 'transfer_admin': {
 
-        /*
-        Sadece mevcut admin yapabilir.
-        */
-
-        if (
-          !isAdmin(
-            currentParticipantId,
-            currentBoardId
-          )
-        ) {
-
-          return sendError(
-            ws,
-            'Adminliği sadece mevcut admin devredebilir.'
-          );
-
+      broadcast(
+        currentBoardId,
+        {
+          type: 'comment_deleted',
+          card_id: comment.card_id
         }
+      );
+
+      return;
+    }
 
 
-        const newAdmin =
-          getParticipant(
-            msg.participant_id,
-            currentBoardId
-          );
+    // =====================================================
+    // ACTION ADD
+    // =====================================================
+
+    if (msg.type === 'action_add') {
+
+      const id = uuidv4();
 
 
-        if (!newAdmin) {
+      db.prepare(`
+        INSERT INTO actions
+        (
+          id,
+          board_id,
+          content,
+          owner,
+          due_date,
+          status,
+          created_at
+        )
 
-          return sendError(
-            ws,
-            'Katılımcı bulunamadı.'
-          );
+        VALUES (?, ?, ?, ?, ?, 'open', ?)
+      `).run(
 
+        id,
+
+        currentBoardId,
+
+        msg.content || '',
+
+        msg.owner || null,
+
+        msg.due_date || null,
+
+        Date.now()
+      );
+
+
+      broadcast(
+        currentBoardId,
+        {
+          type: 'action_added',
+          id
         }
+      );
+
+      return;
+    }
 
 
-        if (
-          newAdmin.id ===
-          currentParticipantId
-        ) {
+    // =====================================================
+    // REVEAL — SADECE ADMIN
+    // =====================================================
 
-          return sendError(
-            ws,
-            'Zaten adminsiniz.'
-          );
+    if (msg.type === 'reveal') {
 
-        }
-
-
-        /*
-        Önce eski admin participant.
-        */
-
-        db.prepare(`
-          UPDATE participants
-
-          SET role = 'participant'
-
-          WHERE id = ?
-        `).run(
-          currentParticipantId
-        );
-
-
-        /*
-        Sonra yeni admin.
-        */
-
-        db.prepare(`
-          UPDATE participants
-
-          SET role = 'admin'
-
-          WHERE id = ?
-        `).run(
-          newAdmin.id
-        );
-
-
-        /*
-        Eski admin'e bildir.
-        */
-
-        ws.send(JSON.stringify({
-
-          type: 'admin_transferred',
-
-          new_admin_id:
-            newAdmin.id
-
-        }));
-
-
-        /*
-        Tüm kullanıcılara bildir.
-        */
-
-        broadcast(
-          currentBoardId,
-          {
-
-            type:
-              'admin_changed',
-
-            admin_id:
-              newAdmin.id,
-
-            admin_name:
-              newAdmin.name
-
-          }
-        );
-
-
-        /*
-        Mevcut websocket'in rolünü
-        güncelliyoruz.
-        */
-
-        currentParticipantId =
-          currentParticipantId;
-
-
-        break;
-      }
-
-
-      /*
-      ======================================================
-      BOARD CLOSE
-      ======================================================
-      */
-
-      case 'board_close': {
-
-        /*
-        SADECE ADMIN
-        */
-
-        if (
-          !isAdmin(
-            currentParticipantId,
-            currentBoardId
-          )
-        ) {
-
-          return sendError(
-            ws,
-            'Boardu sadece admin kapatabilir.'
-          );
-
-        }
-
-
-        db.prepare(`
-          UPDATE boards
-
-          SET
-            status = 'closed',
-            closed_at = ?
-
-          WHERE id = ?
-        `).run(
-
-          Date.now(),
-
+      if (
+        !isAdmin(
+          currentParticipantId,
           currentBoardId
+        )
+      ) {
 
+        ws.send(
+          JSON.stringify({
+            type: 'error',
+            message:
+              'Sadece admin kartları açabilir.'
+          })
         );
 
-
-        const {
-          token
-        } =
-          generateReport(
-            currentBoardId
-          );
-
-
-        broadcast(
-          currentBoardId,
-          {
-
-            type:
-              'board_closed',
-
-            report_token:
-              token
-
-          }
-        );
-
-
-        break;
+        return;
       }
 
+
+      db.prepare(`
+        UPDATE boards
+
+        SET status = 'revealed'
+
+        WHERE id = ?
+      `).run(currentBoardId);
+
+
+      broadcast(
+        currentBoardId,
+        {
+          type: 'revealed'
+        }
+      );
+
+      return;
+    }
+
+
+    // =====================================================
+    // TRANSFER ADMIN
+    // =====================================================
+
+    if (msg.type === 'transfer_admin') {
+
+      if (
+        !isAdmin(
+          currentParticipantId,
+          currentBoardId
+        )
+      ) {
+
+        ws.send(
+          JSON.stringify({
+            type: 'error',
+            message:
+              'Sadece admin yetki devredebilir.'
+          })
+        );
+
+        return;
+      }
+
+
+      const newAdmin =
+        db.prepare(`
+          SELECT *
+          FROM participants
+
+          WHERE id = ?
+          AND board_id = ?
+        `).get(
+          msg.participant_id,
+          currentBoardId
+        );
+
+
+      if (!newAdmin) {
+        return;
+      }
+
+
+      if (
+        newAdmin.id ===
+        currentParticipantId
+      ) {
+        return;
+      }
+
+
+      db.prepare(`
+        UPDATE participants
+
+        SET role = 'participant'
+
+        WHERE board_id = ?
+        AND role = 'admin'
+      `).run(currentBoardId);
+
+
+      db.prepare(`
+        UPDATE participants
+
+        SET role = 'admin'
+
+        WHERE id = ?
+        AND board_id = ?
+      `).run(
+        newAdmin.id,
+        currentBoardId
+      );
+
+
+      broadcast(
+        currentBoardId,
+        {
+          type: 'admin_changed',
+          admin_id: newAdmin.id
+        }
+      );
+
+      return;
+    }
+
+
+    // =====================================================
+    // CLOSE BOARD — SADECE ADMIN
+    // =====================================================
+
+    if (msg.type === 'board_close') {
+
+      if (
+        !isAdmin(
+          currentParticipantId,
+          currentBoardId
+        )
+      ) {
+
+        ws.send(
+          JSON.stringify({
+            type: 'error',
+            message:
+              'Sadece admin boardu kapatabilir.'
+          })
+        );
+
+        return;
+      }
+
+
+      db.prepare(`
+        UPDATE boards
+
+        SET
+          status = 'closed',
+          closed_at = ?
+
+        WHERE id = ?
+      `).run(
+        Date.now(),
+        currentBoardId
+      );
+
+
+      const {
+        token
+      } = generateReport(
+        currentBoardId
+      );
+
+
+      broadcast(
+        currentBoardId,
+        {
+          type: 'board_closed',
+          report_token: token
+        }
+      );
+
+      return;
     }
 
   });
 
 
-  /*
-  ==========================================================
-  DISCONNECT
-  ==========================================================
-  */
+  // =====================================================
 
   ws.on('close', () => {
 
     if (
       currentBoardId &&
-      boardSockets.has(
-        currentBoardId
-      )
+      boardSockets.has(currentBoardId)
     ) {
 
       boardSockets
         .get(currentBoardId)
         .delete(ws);
-
     }
 
   });
@@ -965,23 +974,23 @@ wss.on('connection', ws => {
 });
 
 
-/*
-============================================================
-TTL CLEANUP
-============================================================
-*/
+// =========================================================
+// TTL CLEANUP
+// =========================================================
 
 function cleanupExpiredBoards() {
 
   const boards =
-    db.prepare(`
-      SELECT
-        id,
-        created_at,
-        ttl_hours
+    db
+      .prepare(`
+        SELECT
+          id,
+          created_at,
+          ttl_hours
 
-      FROM boards
-    `).all();
+        FROM boards
+      `)
+      .all();
 
 
   const now =
@@ -1004,14 +1013,9 @@ function cleanupExpiredBoards() {
       1000
     ) {
 
-      del.run(
-        board.id
-      );
-
+      del.run(board.id);
     }
-
   }
-
 }
 
 
@@ -1021,11 +1025,9 @@ setInterval(
 );
 
 
-/*
-============================================================
-SERVER
-============================================================
-*/
+// =========================================================
+// SERVER
+// =========================================================
 
 const PORT =
   process.env.PORT || 3000;
@@ -1034,11 +1036,9 @@ const PORT =
 server.listen(
   PORT,
   () => {
-
     console.log(
       `Retro app http://localhost:${PORT} adresinde çalışıyor`
     );
-
   }
 );
 ```
