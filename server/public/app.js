@@ -1,4 +1,3 @@
-```javascript
 const app = document.getElementById('app');
 
 const state = {
@@ -2521,4 +2520,3 @@ async function renderReport(
 // =========================================================
 
 navigate();
-```
