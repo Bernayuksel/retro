@@ -1,0 +1,118 @@
+/* Comment text: never overflow the card/comment box. */
+.comment-row {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+
+.comment-row > div:not(.comment-reactions) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+.comment-row strong {
+  overflow-wrap: anywhere;
+}
+
+.comment-anonymous-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 8px 0 4px;
+  font-size: 12px;
+  color: #666;
+  cursor: pointer;
+}
+
+.comment-anonymous-row input {
+  margin: 0;
+}
+
+.reply-comment,
+.delete-comment {
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  font-size: 11px;
+  margin-left: 6px;
+}
+
+.reply-comment {
+  color: #666;
+}
+
+.reply-comment:hover {
+  color: #111;
+}
+
+.small-secondary {
+  border: 1px solid #ddd;
+  background: #fff;
+  border-radius: 6px;
+  padding: 5px 8px;
+  cursor: pointer;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.comment-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.comment-reaction {
+  border: 1px solid #e5e5e5;
+  background: #fff;
+  border-radius: 999px;
+  padding: 2px 7px;
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.comment-reaction:hover {
+  background: #f6f6f6;
+}
+
+/* Action form: date input and Add button no longer overlap. */
+.action-form,
+.action-form-enhanced {
+  display: grid !important;
+  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(130px, 150px) auto !important;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.action-form > *,
+.action-form-enhanced > * {
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.action-form button,
+.action-form-enhanced button {
+  min-width: 72px;
+  white-space: nowrap;
+}
+
+.card-content {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  white-space: pre-wrap;
+}
+
+@media (max-width: 850px) {
+  .action-form,
+  .action-form-enhanced {
+    grid-template-columns: 1fr !important;
+  }
+}
