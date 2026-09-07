@@ -7,11 +7,18 @@ const db = require('./db');
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
 if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
 
-/**
- * Board kapandığında çağrılır: tüm veriyi toplar, kalıcı bir snapshot +
- * PDF üretir ve paylaşılabilir bir token döner. Board'un kendisi TTL ile
- * silinse bile rapor bağımsız olarak (reports tablosunda) yaşamaya devam eder.
- */
+function findUnicodeFont() {
+  const candidates = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans.ttf',
+    'C:/Windows/Fonts/arial.ttf',
+    'C:/Windows/Fonts/calibri.ttf',
+    '/System/Library/Fonts/Supplemental/Arial.ttf'
+  ];
+  return candidates.find(font => fs.existsSync(font)) || null;
+}
+
 function generateReport(boardId) {
   const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId);
   if (!board) throw new Error('Board bulunamadı');
@@ -68,6 +75,11 @@ function buildPdf(filePath, snapshot) {
   const doc = new PDFDocument({ margin: 50 });
   doc.pipe(fs.createWriteStream(filePath));
 
+  // PDFKit'in standart Helvetica fontu Türkçe karakterleri içermez.
+  // Unicode destekli bir TTF varsa onu kullanıyoruz.
+  const unicodeFont = findUnicodeFont();
+  if (unicodeFont) doc.font(unicodeFont);
+
   doc.fontSize(20).text(snapshot.board.title || 'Retro Raporu', { underline: true });
   doc.moveDown(0.5);
   doc.fontSize(10).fillColor('gray').text(
@@ -75,7 +87,6 @@ function buildPdf(filePath, snapshot) {
   );
   doc.fillColor('black').moveDown(1);
 
-  // İstatistikler
   doc.fontSize(14).text('Katılım Özeti', { underline: true });
   doc.fontSize(11).moveDown(0.3);
   doc.text(`Katılımcı sayısı: ${snapshot.stats.participant_count}`);
@@ -88,7 +99,6 @@ function buildPdf(filePath, snapshot) {
   }
   doc.moveDown(1);
 
-  // Kolonlar ve kartlar
   doc.fontSize(14).text('Kartlar', { underline: true });
   doc.moveDown(0.3);
   for (const col of snapshot.columns) {
@@ -105,7 +115,6 @@ function buildPdf(filePath, snapshot) {
     doc.moveDown(0.5);
   }
 
-  // Aksiyon maddeleri
   doc.moveDown(0.5);
   doc.fontSize(14).text('Aksiyon Maddeleri', { underline: true });
   doc.fontSize(10).moveDown(0.3);
