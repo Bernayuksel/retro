@@ -2,7 +2,7 @@
   const EMOJIS = ['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'];
   let replyParentId = null;
   let commentAnonymous = false;
-  let wsBound = null;
+  let lastStatus = null;
 
   const originalSend = window.send;
   if (typeof originalSend === 'function') {
@@ -33,19 +33,6 @@
     return response.json();
   }
 
-  function bindSocket() {
-    if (!window.state?.ws || wsBound === window.state.ws) return;
-    wsBound = window.state.ws;
-    wsBound.addEventListener('message', event => {
-      try {
-        const message = JSON.parse(event.data);
-        if (['comment_added', 'comment_deleted', 'comment_reactions_changed', 'hidden', 'revealed'].includes(message.type)) {
-          setTimeout(() => window.refreshBoardData?.(), 80);
-        }
-      } catch (_) {}
-    });
-  }
-
   function depthFor(comment, commentsById, cache = new Map(), trail = new Set()) {
     if (!comment?.parent_id || trail.has(comment.id)) return 0;
     if (cache.has(comment.id)) return cache.get(comment.id);
@@ -59,9 +46,13 @@
   }
 
   async function enhance() {
-    bindSocket();
     const board = await getBoard();
     if (!board) return;
+
+    if (lastStatus !== null && board.status !== lastStatus) {
+      await window.refreshBoardData?.();
+    }
+    lastStatus = board.status;
 
     const commentsById = new Map();
     for (const card of board.cards || []) {
@@ -154,7 +145,7 @@
     if (actionForm) actionForm.classList.add('action-form-enhanced');
 
     const revealButton = document.getElementById('adminReveal');
-    if (revealButton && board.status === 'revealed' && window.state?.role === 'admin') {
+    if (revealButton && board.status === 'revealed') {
       const strong = revealButton.querySelector('strong');
       const small = revealButton.querySelector('small');
       if (strong) strong.textContent = 'Kartları Gizle';
@@ -170,6 +161,6 @@
   if (app) observer.observe(app, { childList: true, subtree: true });
 
   window.addEventListener('hashchange', () => setTimeout(enhance, 100));
-  setInterval(enhance, 1000);
+  setInterval(enhance, 1200);
   setTimeout(enhance, 150);
 })();
