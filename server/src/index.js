@@ -170,8 +170,10 @@ app.get('/api/boards/:id', (req, res) => {
         c.id,
         c.card_id,
         c.content,
+        c.is_anonymous,
+        c.parent_id,
         c.created_at,
-        p.name AS author_name
+        CASE WHEN c.is_anonymous = 1 THEN NULL ELSE p.name END AS author_name
 
       FROM comments c
 
@@ -219,6 +221,15 @@ app.get('/api/boards/:id', (req, res) => {
   const commentsByCard = {};
 
   for (const comment of comments) {
+
+    comment.is_anonymous = !!comment.is_anonymous;
+    comment.reactions = db.prepare(`
+      SELECT emoji, COUNT(*) AS count
+      FROM comment_reactions
+      WHERE comment_id = ?
+      GROUP BY emoji
+      ORDER BY count DESC, emoji ASC
+    `).all(comment.id);
 
     if (!commentsByCard[comment.card_id]) {
       commentsByCard[comment.card_id] = [];
@@ -620,6 +631,15 @@ wss.on('connection', ws => {
         return;
       }
 
+      let parentId = msg.parent_id || null;
+
+      if (parentId) {
+        const parent = db.prepare(`
+          SELECT id FROM comments WHERE id = ? AND card_id = ?
+        `).get(parentId, msg.card_id);
+        if (!parent) parentId = null;
+      }
+
 
       const id = uuidv4();
 
@@ -631,10 +651,12 @@ wss.on('connection', ws => {
           card_id,
           participant_id,
           content,
+          is_anonymous,
+          parent_id,
           created_at
         )
 
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
       `).run(
 
         id,
@@ -644,6 +666,10 @@ wss.on('connection', ws => {
         currentParticipantId,
 
         content,
+
+        msg.anonymous ? 1 : 0,
+
+        parentId,
 
         Date.now()
       );
@@ -657,6 +683,42 @@ wss.on('connection', ws => {
         }
       );
 
+      return;
+    }
+
+
+    // =====================================================
+    // COMMENT REACTION TOGGLE
+    // =====================================================
+
+    if (msg.type === 'comment_reaction_toggle') {
+      const allowedEmojis = ['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'];
+      const emoji = String(msg.emoji || '');
+      if (!allowedEmojis.includes(emoji)) return;
+
+      const comment = db.prepare(`
+        SELECT c.id FROM comments c
+        JOIN cards card ON card.id = c.card_id
+        WHERE c.id = ? AND card.board_id = ?
+      `).get(msg.comment_id, currentBoardId);
+      if (!comment) return;
+
+      const existing = db.prepare(`
+        SELECT id FROM comment_reactions
+        WHERE comment_id = ? AND participant_id = ? AND emoji = ?
+      `).get(msg.comment_id, currentParticipantId, emoji);
+
+      if (existing) {
+        db.prepare('DELETE FROM comment_reactions WHERE id = ?').run(existing.id);
+      } else {
+        db.prepare(`
+          INSERT INTO comment_reactions
+          (id, comment_id, participant_id, emoji, created_at)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(uuidv4(), msg.comment_id, currentParticipantId, emoji, Date.now());
+      }
+
+      broadcast(currentBoardId, { type: 'comment_reactions_changed' });
       return;
     }
 
@@ -805,6 +867,26 @@ wss.on('connection', ws => {
         }
       );
 
+      return;
+    }
+
+
+    // =====================================================
+    // HIDE — SADECE ADMIN
+    // =====================================================
+
+    if (msg.type === 'hide') {
+      if (!isAdmin(currentParticipantId, currentBoardId)) {
+        ws.send(JSON.stringify({ type: 'error', message: 'Sadece admin kartları gizleyebilir.' }));
+        return;
+      }
+
+      db.prepare(`
+        UPDATE boards SET status = 'open'
+        WHERE id = ? AND status = 'revealed'
+      `).run(currentBoardId);
+
+      broadcast(currentBoardId, { type: 'hidden' });
       return;
     }
 

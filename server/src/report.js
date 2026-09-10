@@ -72,18 +72,36 @@ function generateReport(boardId) {
 }
 
 function buildPdf(filePath, snapshot) {
-  const doc = new PDFDocument({ margin: 50 });
+  const doc = new PDFDocument({ margin: 50, info: { Title: snapshot.board.title || 'Retro Raporu', Language: 'tr-TR' } });
   doc.pipe(fs.createWriteStream(filePath));
 
   // PDFKit'in standart Helvetica fontu Türkçe karakterleri içermez.
   // Unicode destekli bir TTF varsa onu kullanıyoruz.
   const unicodeFont = findUnicodeFont();
-  if (unicodeFont) doc.font(unicodeFont);
+  if (!unicodeFont) {
+    throw new Error('Türkçe PDF oluşturmak için Unicode destekli bir font bulunamadı.');
+  }
+  doc.font(unicodeFont);
+
+  const statusLabels = {
+    open: 'Açık',
+    in_progress: 'Devam ediyor',
+    done: 'Tamamlandı',
+    closed: 'Kapalı'
+  };
+  const formatDate = value => {
+    if (!value) return '-';
+    const dateOnly = /^\d{4}-\d{2}-\d{2}$/.test(String(value));
+    const date = dateOnly ? new Date(`${value}T00:00:00`) : new Date(value);
+    return new Intl.DateTimeFormat('tr-TR', dateOnly
+      ? { dateStyle: 'long' }
+      : { dateStyle: 'long', timeStyle: 'short' }).format(date);
+  };
 
   doc.fontSize(20).text(snapshot.board.title || 'Retro Raporu', { underline: true });
   doc.moveDown(0.5);
   doc.fontSize(10).fillColor('gray').text(
-    `Oluşturulma: ${new Date(snapshot.board.closed_at || Date.now()).toLocaleString('tr-TR')}`
+    `Oluşturulma: ${formatDate(snapshot.board.closed_at || Date.now())}`
   );
   doc.fillColor('black').moveDown(1);
 
@@ -123,7 +141,7 @@ function buildPdf(filePath, snapshot) {
   } else {
     for (const a of snapshot.actions) {
       doc.text(`• ${a.content}`);
-      doc.fillColor('gray').text(`   Sorumlu: ${a.owner || '-'}   Tarih: ${a.due_date || '-'}   Durum: ${a.status}`);
+      doc.fillColor('gray').text(`   Sorumlu: ${a.owner || '-'}   Tarih: ${formatDate(a.due_date)}   Durum: ${statusLabels[a.status] || a.status || '-'}`);
       doc.fillColor('black');
     }
   }

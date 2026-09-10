@@ -1080,11 +1080,8 @@ function renderCommentsHtml(card) {
           ? comments.map(comment => `
 
               <div class="comment-row"
-                   style="
-                     padding:7px 0;
-                     border-bottom:1px solid #eee;
-                     font-size:12px;
-                   ">
+                   data-comment-id="${comment.id}"
+                   style="--comment-depth:${commentDepth(comment, comments)}">
 
                 <div
                   style="
@@ -1095,24 +1092,21 @@ function renderCommentsHtml(card) {
                 >
 
                   <strong>
-                    ${escapeHtml(
-                      comment.author_name
-                    )}
+                    ${escapeHtml(comment.is_anonymous ? 'Anonim' : (comment.author_name || 'Anonim'))}
                   </strong>
 
-                  <button
-                    class="delete-comment"
-                    data-comment-id="${comment.id}"
-                    style="
-                      border:0;
-                      background:transparent;
-                      color:#aaa;
-                      cursor:pointer;
-                    "
-                  >
-                    ×
-                  </button>
+                  <span class="comment-actions">
+                    <button class="reply-comment" data-reply-id="${comment.id}">↩ Yanıtla</button>
+                    <button class="delete-comment" data-comment-id="${comment.id}" title="Yorumu sil">×</button>
+                  </span>
 
+                </div>
+
+                <div class="comment-reactions">
+                  ${['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'].map(emoji => {
+                    const reaction = (comment.reactions || []).find(item => item.emoji === emoji);
+                    return `<button class="comment-reaction" data-comment-id="${comment.id}" data-emoji="${emoji}">${emoji}${reaction ? ` ${reaction.count}` : ''}</button>`;
+                  }).join('')}
                 </div>
 
                 <div
@@ -1139,6 +1133,16 @@ function renderCommentsHtml(card) {
             `
       }
 
+      <label class="comment-anonymous-row">
+        <input type="checkbox" class="comment-anonymous">
+        <span>Anonim yorum</span>
+      </label>
+
+      <div class="reply-indicator hidden">
+        <span>Bir yoruma yanıt veriyorsunuz</span>
+        <button type="button" class="cancel-reply">İptal</button>
+      </div>
+
 
       <div
         style="
@@ -1164,6 +1168,19 @@ function renderCommentsHtml(card) {
     </div>
 
   `;
+}
+
+function commentDepth(comment, comments) {
+  const byId = new Map(comments.map(item => [item.id, item]));
+  let depth = 0;
+  let current = comment;
+  const visited = new Set();
+  while (current?.parent_id && depth < 4 && !visited.has(current.id)) {
+    visited.add(current.id);
+    current = byId.get(current.parent_id);
+    if (current) depth += 1;
+  }
+  return depth;
 }
 
 
@@ -1203,6 +1220,35 @@ function bindCommentEvents(
       '.add-comment'
     );
 
+  const anonymousInput = cardElement.querySelector('.comment-anonymous');
+  const replyIndicator = cardElement.querySelector('.reply-indicator');
+  let parentId = null;
+
+  const clearReply = () => {
+    parentId = null;
+    replyIndicator?.classList.add('hidden');
+    if (input) input.placeholder = 'Yorum yaz...';
+  };
+
+  cardElement.querySelectorAll('.reply-comment').forEach(button => {
+    button.onclick = () => {
+      parentId = button.dataset.replyId;
+      replyIndicator?.classList.remove('hidden');
+      input.placeholder = 'Yanıt yaz...';
+      input.focus();
+    };
+  });
+
+  cardElement.querySelector('.cancel-reply')?.addEventListener('click', clearReply);
+
+  cardElement.querySelectorAll('.comment-reaction').forEach(button => {
+    button.onclick = () => send({
+      type: 'comment_reaction_toggle',
+      comment_id: button.dataset.commentId,
+      emoji: button.dataset.emoji
+    });
+  });
+
 
   if (addButton) {
 
@@ -1222,12 +1268,18 @@ function bindCommentEvents(
 
           card_id: card.id,
 
-          content
+          content,
+
+          anonymous: !!anonymousInput?.checked,
+
+          parent_id: parentId
 
         });
 
 
         input.value = '';
+        if (anonymousInput) anonymousInput.checked = false;
+        clearReply();
 
       };
   }
@@ -1761,19 +1813,26 @@ function renderAdminPanel() {
     .getElementById(
       'adminReveal'
     )
+    .querySelector('strong').textContent = state.status === 'revealed' ? 'Kartları Gizle' : 'Kartları Aç';
+
+  document
+    .getElementById(
+      'adminReveal'
+    )
+    .querySelector('small').textContent = state.status === 'revealed'
+      ? 'Kartların içeriğini tekrar gizle'
+      : 'Tüm kartların içeriğini göster';
+
+  document
+    .getElementById(
+      'adminReveal'
+    )
     .onclick = () => {
-
-      if (
-        confirm(
-          'Tüm kartlar açılacak. Emin misiniz?'
-        )
-      ) {
-
-        send({
-          type: 'reveal'
-        });
-
-      }
+      const cardsAreOpen = state.status === 'revealed';
+      const message = cardsAreOpen
+        ? 'Tüm kartlar tekrar gizlenecek. Emin misiniz?'
+        : 'Tüm kartlar açılacak. Emin misiniz?';
+      if (confirm(message)) send({ type: cardsAreOpen ? 'hide' : 'reveal' });
 
     };
 
@@ -1975,8 +2034,18 @@ function connectWs(
 
         case 'comment_deleted':
 
+        case 'comment_reactions_changed':
+
           await refreshBoardData();
 
+          break;
+
+        case 'hidden':
+
+          state.status = 'open';
+          updateStatusBadge('open');
+          await refreshBoardData();
+          renderAdminPanel();
           break;
 
 
