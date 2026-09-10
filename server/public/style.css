@@ -422,6 +422,8 @@ textarea.modern-input {
   border-radius: 18px;
   padding: 15px;
 
+  min-width: 0;
+
   min-height: 400px;
 
   border: 1px solid var(--border);
@@ -601,12 +603,25 @@ textarea.modern-input {
 
 .add-card-area {
   margin-top: 13px;
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+
+.newCardInput {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .card-form-bottom {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  width: 100%;
+  min-width: 0;
+  gap: 8px;
 
   margin-top: 7px;
 }
@@ -750,6 +765,15 @@ textarea.modern-input {
 
 .action-form > * { min-width: 0; }
 .action-form button { min-width: 72px; white-space: nowrap; }
+.action-form .modern-input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+.action-form input[type="date"] {
+  overflow: hidden;
+}
 
 .card-content,
 .comment-row,
