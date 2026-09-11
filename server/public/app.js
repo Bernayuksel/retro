@@ -58,6 +58,78 @@ function statusLabel(status) {
 }
 
 
+function requestParticipantName() {
+  return new Promise(resolve => {
+    document.querySelector('.name-entry-modal')?.remove();
+
+    const modal = document.createElement('div');
+    modal.className = 'modal name-entry-modal';
+    modal.innerHTML = `
+      <div class="modal-backdrop"></div>
+      <form class="modal-content name-entry-content">
+        <div class="eyebrow">RETROYA KATIL</div>
+        <h2>Nasıl görünmek istersiniz?</h2>
+        <p class="muted">Adınızı yazın veya anonim olarak katılın.</p>
+
+        <label class="name-entry-label" for="participantName">Adınız</label>
+        <input
+          id="participantName"
+          class="modern-input"
+          type="text"
+          maxlength="60"
+          autocomplete="name"
+          placeholder="Adınızı yazın"
+          autofocus
+        >
+
+        <label class="name-entry-anonymous">
+          <input id="joinAnonymously" type="checkbox">
+          <span>Anonim katıl</span>
+        </label>
+
+        <div class="name-entry-actions">
+          <button type="button" class="secondary-button" data-cancel>Geri dön</button>
+          <button type="submit" class="primary-button">Board'a katıl</button>
+        </div>
+      </form>
+    `;
+
+    document.body.appendChild(modal);
+
+    const form = modal.querySelector('form');
+    const nameInput = modal.querySelector('#participantName');
+    const anonymousInput = modal.querySelector('#joinAnonymously');
+
+    anonymousInput.onchange = () => {
+      nameInput.disabled = anonymousInput.checked;
+      if (anonymousInput.checked) nameInput.value = '';
+      else nameInput.focus();
+    };
+
+    form.onsubmit = event => {
+      event.preventDefault();
+      const name = nameInput.value.trim();
+      if (!anonymousInput.checked && !name) {
+        nameInput.focus();
+        nameInput.setCustomValidity('Lütfen adınızı yazın veya anonim katılın.');
+        nameInput.reportValidity();
+        return;
+      }
+      nameInput.setCustomValidity('');
+      modal.remove();
+      resolve(anonymousInput.checked ? 'Anonim' : name);
+    };
+
+    modal.querySelector('[data-cancel]').onclick = () => {
+      modal.remove();
+      resolve(null);
+    };
+
+    setTimeout(() => nameInput.focus(), 0);
+  });
+}
+
+
 function navigate() {
   const hash = location.hash || '#/';
 
@@ -447,10 +519,11 @@ async function renderBoard(boardId) {
    */
 
   if (!state.name) {
-
-    state.name =
-      prompt('Adınız:') ||
-      'Anonim';
+    state.name = await requestParticipantName();
+    if (!state.name) {
+      location.hash = '#/';
+      return;
+    }
   }
 
 
