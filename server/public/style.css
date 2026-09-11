@@ -759,12 +759,20 @@ textarea.modern-input {
 
 .action-form {
   display: grid;
-  grid-template-columns: minmax(0, 2fr) minmax(120px, 1fr) minmax(140px, 160px) max-content;
+  grid-template-columns: minmax(0, 1.8fr) minmax(0, .9fr) minmax(190px, .6fr) 96px;
   gap: 8px;
+  align-items: stretch;
 }
 
 .action-form > * { min-width: 0; }
-.action-form button { min-width: 72px; white-space: nowrap; }
+.action-form button {
+  position: static;
+  width: 96px;
+  min-width: 96px;
+  max-width: 96px;
+  margin: 0;
+  white-space: nowrap;
+}
 .action-form .modern-input {
   display: block;
   width: 100%;
@@ -772,6 +780,10 @@ textarea.modern-input {
   max-width: 100%;
 }
 .action-form input[type="date"] {
+  position: static;
+  min-width: 190px;
+  width: 100%;
+  max-width: 100%;
   overflow: hidden;
 }
 
