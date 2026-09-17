@@ -182,6 +182,43 @@ function renderSprintDashboard(board) {
 }
 
 
+function renderActionOwnerField(board) {
+  const members = Array.isArray(board.github_members)
+    ? board.github_members
+    : [];
+
+  if (!members.length) {
+    return `
+      <input
+        id="actionOwner"
+        class="modern-input"
+        placeholder="Sorumlu"
+      >
+    `;
+  }
+
+  const options = members.map(member => {
+    const login = typeof member === 'string' ? member : member.login;
+    const name = typeof member === 'string'
+      ? member
+      : (member.name || member.display_name || member.login);
+    const label = name === login ? `@${login}` : `${name} (@${login})`;
+    return `<option value="${escapeHtml(login)}">${escapeHtml(label)}</option>`;
+  }).join('');
+
+  return `
+    <select
+      id="actionOwner"
+      class="modern-input github-owner-select"
+      aria-label="GitHub sorumlusu"
+    >
+      <option value="">Sorumlu seçin</option>
+      ${options}
+    </select>
+  `;
+}
+
+
 function requestParticipantName() {
   return new Promise(resolve => {
     document.querySelector('.name-entry-modal')?.remove();
@@ -773,11 +810,7 @@ async function renderBoard(boardId) {
             placeholder="Aksiyon maddesi..."
           >
 
-          <input
-            id="actionOwner"
-            class="modern-input"
-            placeholder="Sorumlu"
-          >
+          ${renderActionOwnerField(board)}
 
           <div class="action-submit-group">
             <input

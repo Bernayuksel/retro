@@ -19,6 +19,18 @@ function findUnicodeFont() {
   return candidates.find(font => fs.existsSync(font)) || null;
 }
 
+function findUnicodeBoldFont() {
+  const candidates = [
+    '/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/dejavu/DejaVuSans-Bold.ttf',
+    '/usr/share/fonts/TTF/DejaVuSans-Bold.ttf',
+    'C:/Windows/Fonts/arialbd.ttf',
+    'C:/Windows/Fonts/calibrib.ttf',
+    '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
+  ];
+  return candidates.find(font => fs.existsSync(font)) || findUnicodeFont();
+}
+
 function getSprintDashboard(board) {
   if (board.sprint_dashboard) {
     try {
@@ -106,7 +118,12 @@ function generateReport(boardId) {
 }
 
 function buildPdf(filePath, snapshot) {
-  const doc = new PDFDocument({ margin: 50, info: { Title: snapshot.board.title || 'Retro Raporu', Language: 'tr-TR' } });
+  const doc = new PDFDocument({
+    size: 'A4',
+    margin: 46,
+    bufferPages: true,
+    info: { Title: snapshot.board.title || 'Retro Raporu', Language: 'tr-TR' }
+  });
   doc.pipe(fs.createWriteStream(filePath));
 
   // PDFKit'in standart Helvetica fontu Türkçe karakterleri içermez.
@@ -115,7 +132,24 @@ function buildPdf(filePath, snapshot) {
   if (!unicodeFont) {
     throw new Error('Türkçe PDF oluşturmak için Unicode destekli bir font bulunamadı.');
   }
-  doc.font(unicodeFont);
+  const boldFont = findUnicodeBoldFont();
+  doc.registerFont('Regular', unicodeFont);
+  doc.registerFont('Bold', boldFont);
+
+  const colors = {
+    ink: '#171725',
+    muted: '#74748a',
+    purple: '#635bff',
+    purpleSoft: '#f0efff',
+    border: '#e7e7ef',
+    surface: '#f8f8fc',
+    green: '#248a57',
+    greenSoft: '#eaf8f0',
+    amber: '#9a6a12',
+    amberSoft: '#fff7df',
+    red: '#d95858',
+    blue: '#3478f6'
+  };
 
   const statusLabels = {
     open: 'Açık',
@@ -135,13 +169,53 @@ function buildPdf(filePath, snapshot) {
     const bottom = doc.page.height - doc.page.margins.bottom;
     if (doc.y + height > bottom) doc.addPage();
   };
+  const pageWidth = doc.page.width;
+  const contentWidth = pageWidth - doc.page.margins.left - doc.page.margins.right;
+  const sectionTitle = (title, subtitle) => {
+    ensureSpace(42);
+    doc.font('Bold').fontSize(14).fillColor(colors.ink).text(title, 46, doc.y, { width: contentWidth });
+    if (subtitle) {
+      doc.font('Regular').fontSize(8.5).fillColor(colors.muted).text(subtitle, 46, doc.y, { width: contentWidth });
+    }
+    doc.moveDown(0.45);
+  };
+  const statCard = (x, y, width, label, value, note, fill = colors.surface) => {
+    doc.roundedRect(x, y, width, 68, 10).fill(fill);
+    doc.font('Regular').fontSize(8).fillColor(colors.muted).text(label, x + 11, y + 10, { width: width - 22 });
+    doc.font('Bold').fontSize(19).fillColor(colors.ink).text(String(value), x + 11, y + 25, { width: width - 22 });
+    doc.font('Regular').fontSize(7.5).fillColor(colors.muted).text(note, x + 11, y + 51, { width: width - 22 });
+  };
+  const progressBar = (x, y, width, ratio, color) => {
+    doc.roundedRect(x, y, width, 6, 3).fill('#ececf2');
+    const safeRatio = Math.max(0, Math.min(1, ratio || 0));
+    if (safeRatio > 0) doc.roundedRect(x, y, Math.max(6, width * safeRatio), 6, 3).fill(color);
+  };
+  const drawPageHeader = (continued = false) => {
+    if (continued) {
+      doc.font('Bold').fontSize(9).fillColor(colors.purple).text('RETRO RAPORU', 46, 28);
+      doc.moveTo(46, 44).lineTo(pageWidth - 46, 44).lineWidth(1).strokeColor(colors.border).stroke();
+      doc.y = 58;
+      return;
+    }
+    doc.roundedRect(46, 38, contentWidth, 90, 16).fill(colors.purple);
+    doc.font('Bold').fontSize(10).fillColor('#dedcff').text('SPRINT RETROSPECTIVE', 64, 56);
+    doc.font('Bold').fontSize(23).fillColor('#ffffff').text(
+      snapshot.board.title || 'Retro Raporu',
+      64,
+      76,
+      { width: contentWidth - 170, ellipsis: true }
+    );
+    doc.font('Regular').fontSize(8).fillColor('#dedcff').text(
+      formatDate(snapshot.board.closed_at || Date.now()),
+      pageWidth - 190,
+      87,
+      { width: 126, align: 'right' }
+    );
+    doc.y = 150;
+  };
 
-  doc.fontSize(20).text(snapshot.board.title || 'Retro Raporu', { underline: true });
-  doc.moveDown(0.5);
-  doc.fontSize(10).fillColor('gray').text(
-    `Oluşturulma: ${formatDate(snapshot.board.closed_at || Date.now())}`
-  );
-  doc.fillColor('black').moveDown(1);
+  drawPageHeader(false);
+  doc.on('pageAdded', () => drawPageHeader(true));
 
   const dashboard = snapshot.sprint_dashboard;
   if (dashboard) {
@@ -152,79 +226,151 @@ function buildPdf(filePath, snapshot) {
       ? Math.round((dashboard.completedPoints / dashboard.plannedPoints) * 100)
       : 0;
 
-    ensureSpace(215);
-    doc.fontSize(14).text('Sprint Özeti', { underline: true });
-    doc.moveDown(0.2);
-    doc.fontSize(10).fillColor(dashboard.isDemo ? '#8a6214' : '#237a4b').text(
+    sectionTitle('Sprint Özeti', dashboard.name || 'Sprint performansı');
+    doc.roundedRect(46, doc.y, contentWidth, 25, 8).fill(
+      dashboard.isDemo ? colors.amberSoft : colors.greenSoft
+    );
+    doc.font('Bold').fontSize(8.5).fillColor(dashboard.isDemo ? colors.amber : colors.green).text(
       dashboard.isDemo
         ? 'Örnek veri · GitHub bağlantısı bekleniyor'
-        : 'Kaynak: GitHub Project'
+        : 'Kaynak: GitHub Project',
+      58,
+      doc.y + 8
     );
-    doc.fillColor('gray').text(`${dashboard.name || 'Sprint'} · ${dashboard.dateRange || '-'}`);
-    doc.fillColor('black').moveDown(0.5);
+    doc.y += 37;
 
-    doc.fontSize(11).text(`Tamamlanma: %${completionRate} (${dashboard.completedItems} / ${dashboard.totalItems} madde)`);
-    doc.text(`Tamamlanan efor: ${dashboard.completedPoints} / ${dashboard.plannedPoints} SP (%${pointRate})`);
-    doc.text(`Devreden madde: ${dashboard.carriedItems}`);
-    doc.moveDown(0.6);
+    const gap = 9;
+    const cardWidth = (contentWidth - gap * 3) / 4;
+    const cardsY = doc.y;
+    statCard(46, cardsY, cardWidth, 'TAMAMLANMA', `%${completionRate}`, `${dashboard.completedItems} / ${dashboard.totalItems} madde`, colors.purpleSoft);
+    statCard(46 + cardWidth + gap, cardsY, cardWidth, 'TAMAMLANAN EFOR', dashboard.completedPoints, `${dashboard.plannedPoints} SP planlandı`, colors.greenSoft);
+    statCard(46 + (cardWidth + gap) * 2, cardsY, cardWidth, 'TAMAMLANAN', dashboard.completedItems, 'sprint içinde', colors.surface);
+    statCard(46 + (cardWidth + gap) * 3, cardsY, cardWidth, 'DEVREDEN', dashboard.carriedItems, 'sonraki sprinte', colors.amberSoft);
+    doc.y = cardsY + 82;
 
-    doc.fontSize(11).fillColor('#2563eb').text('Tamamlanan işlerin dağılımı');
-    doc.fillColor('black').fontSize(10);
-    for (const item of dashboard.itemTypes || []) {
-      doc.text(`  • ${item.label}: ${item.value}`);
-    }
-    doc.moveDown(0.4);
+    const panelGap = 12;
+    const panelWidth = (contentWidth - panelGap) / 2;
+    const panelY = doc.y;
+    const panelHeight = 118;
+    doc.roundedRect(46, panelY, panelWidth, panelHeight, 12).lineWidth(1).fillAndStroke('#ffffff', colors.border);
+    doc.roundedRect(46 + panelWidth + panelGap, panelY, panelWidth, panelHeight, 12).lineWidth(1).fillAndStroke('#ffffff', colors.border);
 
-    doc.fontSize(11).fillColor('#2563eb').text('Kişi bazında katkı');
-    doc.fillColor('black').fontSize(10);
-    for (const person of dashboard.contributors || []) {
-      doc.text(`  • ${person.name}: ${person.completed} madde · ${person.points} SP`);
-    }
-    doc.moveDown(1);
+    doc.font('Bold').fontSize(10).fillColor(colors.ink).text('İş türü dağılımı', 59, panelY + 13);
+    let typeY = panelY + 34;
+    const typeTotal = (dashboard.itemTypes || []).reduce((sum, item) => sum + item.value, 0) || 1;
+    const typeColors = [colors.purple, colors.red, colors.green, colors.blue];
+    (dashboard.itemTypes || []).forEach((item, index) => {
+      doc.font('Regular').fontSize(8).fillColor(colors.ink).text(item.label, 59, typeY, { width: panelWidth - 100 });
+      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(String(item.value), 46 + panelWidth - 43, typeY, { width: 28, align: 'right' });
+      progressBar(59, typeY + 13, panelWidth - 82, item.value / typeTotal, typeColors[index % typeColors.length]);
+      typeY += 25;
+    });
+
+    const peopleX = 46 + panelWidth + panelGap + 13;
+    doc.font('Bold').fontSize(10).fillColor(colors.ink).text('Kişi bazında katkı', peopleX, panelY + 13);
+    let peopleY = panelY + 35;
+    (dashboard.contributors || []).slice(0, 4).forEach(person => {
+      doc.circle(peopleX + 9, peopleY + 7, 9).fill(colors.purpleSoft);
+      doc.font('Bold').fontSize(7).fillColor(colors.purple).text(
+        String(person.name || '?').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase(),
+        peopleX + 2,
+        peopleY + 3,
+        { width: 14, align: 'center' }
+      );
+      doc.font('Regular').fontSize(8).fillColor(colors.ink).text(person.name, peopleX + 26, peopleY + 2, { width: panelWidth - 115, ellipsis: true });
+      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(`${person.completed} iş · ${person.points} SP`, peopleX + panelWidth - 115, peopleY + 2, { width: 88, align: 'right' });
+      peopleY += 24;
+    });
+    doc.y = panelY + panelHeight + 20;
   }
 
-  doc.fontSize(14).text('Katılım Özeti', { underline: true });
-  doc.fontSize(11).moveDown(0.3);
-  doc.text(`Katılımcı sayısı: ${snapshot.stats.participant_count}`);
-  doc.text(`Toplam kart: ${snapshot.stats.card_count}`);
-  doc.text(`Toplam oy: ${snapshot.stats.vote_count}`);
-  doc.text(`Aksiyon maddesi: ${snapshot.stats.action_count}`);
+  sectionTitle('Katılım Özeti', 'Retro oturumunun genel görünümü');
+  const participationY = doc.y;
+  const participationGap = 8;
+  const participationWidth = (contentWidth - participationGap * 3) / 4;
+  [
+    ['KATILIMCI', snapshot.stats.participant_count],
+    ['KART', snapshot.stats.card_count],
+    ['OY', snapshot.stats.vote_count],
+    ['AKSİYON', snapshot.stats.action_count]
+  ].forEach(([label, value], index) => {
+    const x = 46 + index * (participationWidth + participationGap);
+    doc.roundedRect(x, participationY, participationWidth, 42, 9).fill(colors.surface);
+    doc.font('Bold').fontSize(15).fillColor(colors.ink).text(String(value), x + 10, participationY + 8);
+    doc.font('Regular').fontSize(7.5).fillColor(colors.muted).text(label, x + 10, participationY + 27);
+  });
+  doc.y = participationY + 52;
   if (snapshot.participants.length) {
-    doc.moveDown(0.3);
-    doc.text(`Katılımcılar: ${snapshot.participants.join(', ')}`);
+    doc.font('Regular').fontSize(8).fillColor(colors.muted).text(`Katılımcılar: ${snapshot.participants.join(', ')}`);
   }
-  doc.moveDown(1);
+  doc.moveDown(1.2);
 
-  ensureSpace(80);
-  doc.fontSize(14).text('Kartlar', { underline: true });
-  doc.moveDown(0.3);
+  sectionTitle('Retro Kartları', 'Takımın paylaştığı görüşler');
   for (const col of snapshot.columns) {
-    ensureSpace(65);
-    doc.fontSize(12).fillColor('#2563eb').text(col.name);
-    doc.fillColor('black').fontSize(10);
     const items = snapshot.cardsByColumn[col.id] || [];
+    const estimatedHeight = 38 + Math.max(1, items.length) * 34;
+    ensureSpace(Math.min(estimatedHeight, 180));
+    const columnY = doc.y;
+    doc.roundedRect(46, columnY, contentWidth, 29, 8).fill(colors.purpleSoft);
+    doc.font('Bold').fontSize(9.5).fillColor(colors.purple).text(col.name, 58, columnY + 9);
+    doc.y = columnY + 38;
     if (items.length === 0) {
-      doc.text('  (kart yok)');
+      doc.font('Regular').fontSize(8.5).fillColor(colors.muted).text('Henüz kart eklenmedi.', 58, doc.y);
+      doc.y += 22;
     } else {
       for (const item of items) {
-        doc.text(`  • ${item.content}  [${item.votes} oy]  — ${item.author}`);
+        const itemHeight = Math.max(30, doc.heightOfString(item.content, { width: contentWidth - 125 }) + 18);
+        ensureSpace(itemHeight + 8);
+        const itemY = doc.y;
+        doc.roundedRect(58, itemY, contentWidth - 24, itemHeight, 8).lineWidth(1).fillAndStroke('#ffffff', colors.border);
+        doc.font('Regular').fontSize(9).fillColor(colors.ink).text(item.content, 70, itemY + 8, { width: contentWidth - 145 });
+        doc.font('Bold').fontSize(7.5).fillColor(colors.purple).text(`${item.votes} oy`, pageWidth - 125, itemY + 8, { width: 55, align: 'right' });
+        doc.font('Regular').fontSize(7.5).fillColor(colors.muted).text(item.author, pageWidth - 180, itemY + itemHeight - 14, { width: 110, align: 'right' });
+        doc.y = itemY + itemHeight + 7;
       }
     }
     doc.moveDown(0.5);
   }
 
-  ensureSpace(90);
-  doc.moveDown(0.5);
-  doc.fontSize(14).text('Aksiyon Maddeleri', { underline: true });
-  doc.fontSize(10).moveDown(0.3);
+  ensureSpace(100);
+  sectionTitle('Aksiyon Maddeleri', 'Retro sonrasında takip edilecek işler');
   if (snapshot.actions.length === 0) {
-    doc.text('(aksiyon maddesi eklenmedi)');
+    doc.roundedRect(46, doc.y, contentWidth, 42, 9).fill(colors.surface);
+    doc.font('Regular').fontSize(8.5).fillColor(colors.muted).text('Henüz aksiyon maddesi eklenmedi.', 58, doc.y + 15);
+    doc.y += 52;
   } else {
     for (const a of snapshot.actions) {
-      doc.text(`• ${a.content}`);
-      doc.fillColor('gray').text(`   Sorumlu: ${a.owner || '-'}   Tarih: ${formatDate(a.due_date)}   Durum: ${statusLabels[a.status] || a.status || '-'}`);
-      doc.fillColor('black');
+      ensureSpace(64);
+      const actionY = doc.y;
+      doc.roundedRect(46, actionY, contentWidth, 55, 10).lineWidth(1).fillAndStroke('#ffffff', colors.border);
+      doc.circle(62, actionY + 18, 7).fill(colors.greenSoft);
+      doc.font('Bold').fontSize(8).fillColor(colors.green).text('✓', 57, actionY + 13, { width: 10, align: 'center' });
+      doc.font('Bold').fontSize(9).fillColor(colors.ink).text(a.content, 78, actionY + 11, { width: contentWidth - 100, ellipsis: true });
+      doc.font('Regular').fontSize(7.5).fillColor(colors.muted).text(
+        `Sorumlu: ${a.owner || '-'}   ·   Tarih: ${formatDate(a.due_date)}   ·   Durum: ${statusLabels[a.status] || a.status || '-'}`,
+        78,
+        actionY + 33,
+        { width: contentWidth - 100 }
+      );
+      doc.y = actionY + 64;
     }
+  }
+
+  doc.removeAllListeners('pageAdded');
+  const range = doc.bufferedPageRange();
+  for (let pageIndex = range.start; pageIndex < range.start + range.count; pageIndex += 1) {
+    doc.switchToPage(pageIndex);
+    const footerY = doc.page.height - doc.page.margins.bottom - 12;
+    doc.moveTo(46, footerY - 9).lineTo(pageWidth - 46, footerY - 9).lineWidth(0.7).strokeColor(colors.border).stroke();
+    doc.font('Regular').fontSize(7.5).fillColor(colors.muted).text(
+      'Retro Board', 46, footerY, { width: 120, lineBreak: false }
+    );
+    doc.text(
+      `${pageIndex + 1} / ${range.count}`,
+      pageWidth - 126,
+      footerY,
+      { width: 80, align: 'right', lineBreak: false }
+    );
   }
 
   doc.end();

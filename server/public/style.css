@@ -285,6 +285,11 @@ p {
   box-shadow: 0 0 0 3px rgba(99,91,255,.09);
 }
 
+.github-owner-select {
+  cursor: pointer;
+  appearance: auto;
+}
+
 textarea.modern-input {
   resize: vertical;
 }
