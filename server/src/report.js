@@ -19,6 +19,39 @@ function findUnicodeFont() {
   return candidates.find(font => fs.existsSync(font)) || null;
 }
 
+function getSprintDashboard(board) {
+  if (board.sprint_dashboard) {
+    try {
+      return typeof board.sprint_dashboard === 'string'
+        ? JSON.parse(board.sprint_dashboard)
+        : board.sprint_dashboard;
+    } catch {
+      // Geçersiz entegrasyon verisinde rapor üretimini durdurma.
+    }
+  }
+
+  return {
+    isDemo: true,
+    name: 'Sprint özeti',
+    dateRange: 'GitHub bağlantısı bekleniyor',
+    totalItems: 24,
+    completedItems: 18,
+    carriedItems: 6,
+    plannedPoints: 60,
+    completedPoints: 45,
+    itemTypes: [
+      { label: 'User Story', value: 11 },
+      { label: 'Bug', value: 5 },
+      { label: 'Task', value: 2 }
+    ],
+    contributors: [
+      { name: 'Örnek Kullanıcı 1', completed: 7, points: 18 },
+      { name: 'Örnek Kullanıcı 2', completed: 6, points: 15 },
+      { name: 'Örnek Kullanıcı 3', completed: 5, points: 12 }
+    ]
+  };
+}
+
 function generateReport(boardId) {
   const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId);
   if (!board) throw new Error('Board bulunamadı');
@@ -51,6 +84,7 @@ function generateReport(boardId) {
 
   const snapshot = {
     board: { title: board.title, created_at: board.created_at, closed_at: board.closed_at },
+    sprint_dashboard: getSprintDashboard(board),
     columns,
     cardsByColumn,
     participants: participants.map(p => p.name),
@@ -97,6 +131,10 @@ function buildPdf(filePath, snapshot) {
       ? { dateStyle: 'long' }
       : { dateStyle: 'long', timeStyle: 'short' }).format(date);
   };
+  const ensureSpace = height => {
+    const bottom = doc.page.height - doc.page.margins.bottom;
+    if (doc.y + height > bottom) doc.addPage();
+  };
 
   doc.fontSize(20).text(snapshot.board.title || 'Retro Raporu', { underline: true });
   doc.moveDown(0.5);
@@ -104,6 +142,46 @@ function buildPdf(filePath, snapshot) {
     `Oluşturulma: ${formatDate(snapshot.board.closed_at || Date.now())}`
   );
   doc.fillColor('black').moveDown(1);
+
+  const dashboard = snapshot.sprint_dashboard;
+  if (dashboard) {
+    const completionRate = dashboard.totalItems
+      ? Math.round((dashboard.completedItems / dashboard.totalItems) * 100)
+      : 0;
+    const pointRate = dashboard.plannedPoints
+      ? Math.round((dashboard.completedPoints / dashboard.plannedPoints) * 100)
+      : 0;
+
+    ensureSpace(215);
+    doc.fontSize(14).text('Sprint Özeti', { underline: true });
+    doc.moveDown(0.2);
+    doc.fontSize(10).fillColor(dashboard.isDemo ? '#8a6214' : '#237a4b').text(
+      dashboard.isDemo
+        ? 'Örnek veri · GitHub bağlantısı bekleniyor'
+        : 'Kaynak: GitHub Project'
+    );
+    doc.fillColor('gray').text(`${dashboard.name || 'Sprint'} · ${dashboard.dateRange || '-'}`);
+    doc.fillColor('black').moveDown(0.5);
+
+    doc.fontSize(11).text(`Tamamlanma: %${completionRate} (${dashboard.completedItems} / ${dashboard.totalItems} madde)`);
+    doc.text(`Tamamlanan efor: ${dashboard.completedPoints} / ${dashboard.plannedPoints} SP (%${pointRate})`);
+    doc.text(`Devreden madde: ${dashboard.carriedItems}`);
+    doc.moveDown(0.6);
+
+    doc.fontSize(11).fillColor('#2563eb').text('Tamamlanan işlerin dağılımı');
+    doc.fillColor('black').fontSize(10);
+    for (const item of dashboard.itemTypes || []) {
+      doc.text(`  • ${item.label}: ${item.value}`);
+    }
+    doc.moveDown(0.4);
+
+    doc.fontSize(11).fillColor('#2563eb').text('Kişi bazında katkı');
+    doc.fillColor('black').fontSize(10);
+    for (const person of dashboard.contributors || []) {
+      doc.text(`  • ${person.name}: ${person.completed} madde · ${person.points} SP`);
+    }
+    doc.moveDown(1);
+  }
 
   doc.fontSize(14).text('Katılım Özeti', { underline: true });
   doc.fontSize(11).moveDown(0.3);
@@ -117,9 +195,11 @@ function buildPdf(filePath, snapshot) {
   }
   doc.moveDown(1);
 
+  ensureSpace(80);
   doc.fontSize(14).text('Kartlar', { underline: true });
   doc.moveDown(0.3);
   for (const col of snapshot.columns) {
+    ensureSpace(65);
     doc.fontSize(12).fillColor('#2563eb').text(col.name);
     doc.fillColor('black').fontSize(10);
     const items = snapshot.cardsByColumn[col.id] || [];
@@ -133,6 +213,7 @@ function buildPdf(filePath, snapshot) {
     doc.moveDown(0.5);
   }
 
+  ensureSpace(90);
   doc.moveDown(0.5);
   doc.fontSize(14).text('Aksiyon Maddeleri', { underline: true });
   doc.fontSize(10).moveDown(0.3);
