@@ -85,6 +85,15 @@ CREATE TABLE IF NOT EXISTS reports (
   pdf_path TEXT NOT NULL,
   created_at INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS ai_reports (
+  id TEXT PRIMARY KEY,
+  report_id TEXT UNIQUE NOT NULL,
+  summary TEXT NOT NULL,
+  pdf_path TEXT NOT NULL,
+  model TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (report_id) REFERENCES reports(id) ON DELETE CASCADE
+);
 `);
 
 // Eski veritabanları için migration.

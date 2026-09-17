@@ -7,6 +7,7 @@ const { v4: uuidv4 } = require('uuid');
 
 const db = require('./db');
 const { generateReport } = require('./report');
+const { generateAiReport } = require('./ai-report');
 
 const app = express();
 
@@ -331,6 +332,42 @@ app.get('/api/reports/:token/pdf', (req, res) => {
     report.pdf_path,
     'retro-raporu.pdf'
   );
+});
+
+
+app.post('/api/reports/:token/ai', async (req, res) => {
+  try {
+    const result = await generateAiReport(req.params.token);
+    res.json({
+      cached: result.cached,
+      model: result.model,
+      download_url: `/api/reports/${req.params.token}/ai-pdf`
+    });
+  } catch (error) {
+    const status = error.code === 'AI_NOT_CONFIGURED' ? 503 : 500;
+    res.status(status).json({
+      error: error.code === 'AI_NOT_CONFIGURED'
+        ? 'AI raporu için OPENAI_API_KEY ayarlanmamış.'
+        : 'AI özetli rapor oluşturulamadı.',
+      detail: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+});
+
+
+app.get('/api/reports/:token/ai-pdf', (req, res) => {
+  const aiReport = db.prepare(`
+    SELECT ai.pdf_path
+    FROM ai_reports ai
+    JOIN reports r ON r.id = ai.report_id
+    WHERE r.token = ?
+  `).get(req.params.token);
+
+  if (!aiReport) {
+    return res.status(404).send('AI özetli rapor henüz oluşturulmadı');
+  }
+
+  res.download(aiReport.pdf_path, 'retro-ai-ozetli-rapor.pdf');
 });
 
 

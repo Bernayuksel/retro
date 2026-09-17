@@ -2588,17 +2588,21 @@ async function renderReport(
         </div>
 
 
-        <a
-          href="/api/reports/${token}/pdf"
-        >
+        <div class="report-download-actions">
+          <a href="/api/reports/${token}/pdf">
+            <button class="secondary-button">
+              Standart PDF
+            </button>
+          </a>
 
           <button
-            class="primary-button"
+            id="downloadAiReportBtn"
+            class="primary-button ai-report-button"
           >
-            PDF İndir
+            <span>✦</span>
+            AI Özetli PDF
           </button>
-
-        </a>
+        </div>
 
       </header>
 
@@ -2817,6 +2821,25 @@ async function renderReport(
     </main>
 
   `;
+
+  document.getElementById('downloadAiReportBtn').onclick = async event => {
+    const button = event.currentTarget;
+    const originalHtml = button.innerHTML;
+    button.disabled = true;
+    button.innerHTML = '<span>✦</span> AI özeti hazırlanıyor...';
+
+    try {
+      const response = await fetch(`/api/reports/${token}/ai`, { method: 'POST' });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || 'AI raporu oluşturulamadı.');
+      window.location.href = result.download_url;
+      button.innerHTML = '<span>✓</span> AI raporu hazır';
+    } catch (error) {
+      button.disabled = false;
+      button.innerHTML = originalHtml;
+      alert(error.message);
+    }
+  };
 }
 
 

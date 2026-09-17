@@ -1355,6 +1355,28 @@ textarea.modern-input {
   margin-bottom: 35px;
 }
 
+.report-download-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+
+.report-download-actions a {
+  display: inline-flex;
+}
+
+.ai-report-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.ai-report-button:disabled {
+  cursor: wait;
+  opacity: .72;
+}
+
 .report-header h1 {
   font-size: 42px;
   letter-spacing: -.04em;

@@ -12,6 +12,7 @@ Login gerektirmez, sonunda otomatik PDF + paylaşılabilir link raporu üretir.
 - Oylama
 - Aksiyon maddeleri (sorumlu + tarih)
 - Board kapatıldığında otomatik retro raporu: PDF + kalıcı paylaşılabilir link
+- İsteğe bağlı, anonimleştirilmiş OpenAI özeti içeren ikinci PDF raporu
 - Board verisi TTL ile otomatik silinir (varsayılan 48 saat); rapor bundan bağımsız kalıcıdır
 
 ## Yerel çalıştırma
@@ -22,6 +23,23 @@ npm start
 ```
 Tarayıcıda `http://localhost:3000` adresini aç.
 
+## AI özetli rapor
+
+AI özetli PDF için OpenAI API anahtarını sunucuyu başlatmadan önce ortam değişkeni olarak tanımlayın.
+
+PowerShell:
+
+```powershell
+$env:OPENAI_API_KEY="api-anahtariniz"
+$env:OPENAI_MODEL="gpt-5.6-luna"
+npm start
+```
+
+`OPENAI_MODEL` isteğe bağlıdır; varsayılan model `gpt-5.6-luna`dır. Kartlar, yorumlar,
+oylar ve aksiyon içerikleri özette kullanılır. Katılımcı ve sorumlu isimleri OpenAI API'ye
+gönderilmez. Üretilen AI özeti veritabanında saklanır; aynı rapor tekrar indirildiğinde yeni
+bir API çağrısı yapılmaz.
+
 ## Docker ile çalıştırma
 ```bash
 docker compose up --build
@@ -31,7 +49,7 @@ docker compose up --build
 - **Backend:** Node.js + Express + `ws` (WebSocket) + SQLite (`better-sqlite3`)
 - **Frontend:** Vanilla JS, build adımı gerektirmez, `server/public` altından statik servis edilir
 - **PDF:** `pdfkit`
-- **Veri modeli:** `boards`, `participants`, `cards`, `votes`, `actions`, `reports`
+- **Veri modeli:** `boards`, `participants`, `cards`, `votes`, `actions`, `reports`, `ai_reports`
   - `reports` tablosu board silinse bile bağımsız kalır (rapor snapshot'ı JSON olarak saklanır)
 
 ## Kurumsal revizyon noktaları (bir sonraki adım)

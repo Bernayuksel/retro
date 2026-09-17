@@ -75,12 +75,20 @@ function generateReport(boardId) {
     FROM cards c WHERE c.board_id = ? ORDER BY vote_count DESC
   `).all(boardId);
   const actions = db.prepare('SELECT * FROM actions WHERE board_id = ? ORDER BY created_at ASC').all(boardId);
+  const comments = db.prepare(`
+    SELECT cm.card_id, cm.content, cm.parent_id
+    FROM comments cm
+    JOIN cards c ON c.id = cm.card_id
+    WHERE c.board_id = ?
+    ORDER BY cm.created_at ASC
+  `).all(boardId);
 
   const cardsByColumn = {};
   for (const col of columns) cardsByColumn[col.id] = [];
   for (const card of cards) {
     if (!cardsByColumn[card.column_id]) cardsByColumn[card.column_id] = [];
     cardsByColumn[card.column_id].push({
+      id: card.id,
       content: card.content,
       author: card.is_anonymous ? 'Anonim' : (card.author_name || 'Anonim'),
       votes: card.vote_count,
@@ -101,6 +109,11 @@ function generateReport(boardId) {
     cardsByColumn,
     participants: participants.map(p => p.name),
     actions: actions.map(a => ({ content: a.content, owner: a.owner, due_date: a.due_date, status: a.status })),
+    comments: comments.map(comment => ({
+      card_id: comment.card_id,
+      content: comment.content,
+      parent_id: comment.parent_id
+    })),
     stats,
   };
 
