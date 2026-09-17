@@ -58,6 +58,130 @@ function statusLabel(status) {
 }
 
 
+function getSprintDashboardData(board) {
+  if (board.sprint_dashboard) {
+    return board.sprint_dashboard;
+  }
+
+  return {
+    isDemo: true,
+    name: 'Sprint özeti',
+    dateRange: 'GitHub bağlantısı bekleniyor',
+    totalItems: 24,
+    completedItems: 18,
+    carriedItems: 6,
+    plannedPoints: 60,
+    completedPoints: 45,
+    itemTypes: [
+      { label: 'User Story', value: 11, color: '#635bff' },
+      { label: 'Bug', value: 5, color: '#ef6a67' },
+      { label: 'Task', value: 2, color: '#30a46c' }
+    ],
+    contributors: [
+      { name: 'Örnek Kullanıcı 1', completed: 7, points: 18 },
+      { name: 'Örnek Kullanıcı 2', completed: 6, points: 15 },
+      { name: 'Örnek Kullanıcı 3', completed: 5, points: 12 }
+    ]
+  };
+}
+
+
+function renderSprintDashboard(board) {
+  const dashboard = getSprintDashboardData(board);
+  const completionRate = dashboard.totalItems
+    ? Math.round((dashboard.completedItems / dashboard.totalItems) * 100)
+    : 0;
+  const pointRate = dashboard.plannedPoints
+    ? Math.round((dashboard.completedPoints / dashboard.plannedPoints) * 100)
+    : 0;
+  const completedTypeTotal = dashboard.itemTypes.reduce(
+    (total, item) => total + item.value,
+    0
+  ) || 1;
+
+  return `
+    <section class="sprint-dashboard" aria-labelledby="sprintDashboardTitle">
+      <div class="sprint-dashboard-heading">
+        <div>
+          <div class="eyebrow">SPRINT OVERVIEW</div>
+          <h2 id="sprintDashboardTitle">${escapeHtml(dashboard.name)}</h2>
+          <p>${escapeHtml(dashboard.dateRange)}</p>
+        </div>
+        ${dashboard.isDemo ? `
+          <span class="dashboard-source-badge">
+            Örnek veri · GitHub bağlantısı bekleniyor
+          </span>
+        ` : `
+          <span class="dashboard-source-badge connected">GitHub Project</span>
+        `}
+      </div>
+
+      <div class="sprint-stat-grid">
+        <article class="sprint-stat-card">
+          <span>Tamamlanma</span>
+          <strong>${completionRate}%</strong>
+          <small>${dashboard.completedItems} / ${dashboard.totalItems} madde</small>
+        </article>
+        <article class="sprint-stat-card">
+          <span>Tamamlanan efor</span>
+          <strong>${dashboard.completedPoints}</strong>
+          <small>${dashboard.plannedPoints} puanın %${pointRate}'i</small>
+        </article>
+        <article class="sprint-stat-card">
+          <span>Tamamlanan madde</span>
+          <strong>${dashboard.completedItems}</strong>
+          <small>Sprint içinde tamamlandı</small>
+        </article>
+        <article class="sprint-stat-card warning">
+          <span>Devreden madde</span>
+          <strong>${dashboard.carriedItems}</strong>
+          <small>Sonraki sprinte kaldı</small>
+        </article>
+      </div>
+
+      <div class="sprint-detail-grid">
+        <article class="sprint-detail-card">
+          <div class="dashboard-card-title">
+            <h3>Tamamlanan işlerin dağılımı</h3>
+            <span>${dashboard.completedItems} madde</span>
+          </div>
+          <div class="type-distribution">
+            ${dashboard.itemTypes.map(item => `
+              <div class="type-row">
+                <div class="type-row-label">
+                  <span><i style="background:${item.color}"></i>${escapeHtml(item.label)}</span>
+                  <strong>${item.value}</strong>
+                </div>
+                <div class="type-track">
+                  <span style="width:${Math.round((item.value / completedTypeTotal) * 100)}%;background:${item.color}"></span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+
+        <article class="sprint-detail-card">
+          <div class="dashboard-card-title">
+            <h3>Kişi bazında katkı</h3>
+            <span>Tamamlanan</span>
+          </div>
+          <div class="contributor-list">
+            ${dashboard.contributors.map(person => `
+              <div class="contributor-row">
+                <span class="contributor-avatar">${initials(person.name)}</span>
+                <span class="contributor-name">${escapeHtml(person.name)}</span>
+                <span><strong>${person.completed}</strong> madde</span>
+                <span><strong>${person.points}</strong> SP</span>
+              </div>
+            `).join('')}
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
+
 function requestParticipantName() {
   return new Promise(resolve => {
     document.querySelector('.name-entry-modal')?.remove();
@@ -608,6 +732,9 @@ async function renderBoard(boardId) {
       </section>
 
 
+      ${renderSprintDashboard(board)}
+
+
       <section
         class="board-columns"
         id="columns"
@@ -652,18 +779,21 @@ async function renderBoard(boardId) {
             placeholder="Sorumlu"
           >
 
-          <input
-            id="actionDue"
-            class="modern-input"
-            type="date"
-          >
+          <div class="action-submit-group">
+            <input
+              id="actionDue"
+              class="modern-input"
+              type="date"
+              aria-label="Bitiş tarihi"
+            >
 
-          <button
-            id="addActionBtn"
-            class="primary-button"
-          >
-            Ekle
-          </button>
+            <button
+              id="addActionBtn"
+              class="primary-button"
+            >
+              Ekle
+            </button>
+          </div>
 
         </div>
 
