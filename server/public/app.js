@@ -12,6 +12,14 @@ const state = {
   openComments: new Set()
 };
 
+function savedIdentity(boardId) {
+  try {
+    return JSON.parse(localStorage.getItem(`retro:identity:${boardId}`) || 'null');
+  } catch {
+    return null;
+  }
+}
+
 
 // =========================================================
 // HELPERS
@@ -669,6 +677,9 @@ async function renderBoard(boardId) {
 
 
   state.boardId = boardId;
+  const previousIdentity = savedIdentity(boardId);
+  state.name = previousIdentity?.name || null;
+  state.participantId = previousIdentity?.participantId || null;
   state.columns = board.columns;
   state.status = board.status;
   state.participants =
@@ -2200,7 +2211,8 @@ function connectWs(
 
       board_id: boardId,
 
-      name: state.name
+      name: state.name,
+      resume_token: savedIdentity(boardId)?.resumeToken
 
     });
 
@@ -2222,6 +2234,17 @@ function connectWs(
         // ---------------------------------------------
 
         case 'joined':
+
+          state.name = msg.name;
+          try {
+            localStorage.setItem(`retro:identity:${boardId}`, JSON.stringify({
+              participantId: msg.participant_id,
+              resumeToken: msg.resume_token,
+              name: msg.name
+            }));
+          } catch (error) {
+            console.warn('Katılımcı kimliği tarayıcıya kaydedilemedi', error);
+          }
 
           state.participantId =
             msg.participant_id;
