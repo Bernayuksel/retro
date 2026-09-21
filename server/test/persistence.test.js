@@ -60,7 +60,7 @@ test('board, admin identity and report survive a server restart', { timeout: 300
     let child = await start();
     const createResponse = await fetch(`${base}/api/boards`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ title: 'Kalıcı retro', columns: ['İyi gitti'], ttl_hours: 48 })
+      body: JSON.stringify({ title: 'Kalıcı retro', columns: ['İyi gitti', 'Gelişim'], weekly_question: 'Bu hafta ne öğrendik?', timer_minutes: 30 })
     });
     assert.equal(createResponse.status, 200);
     const board = await createResponse.json();
@@ -69,14 +69,36 @@ test('board, admin identity and report survive a server restart', { timeout: 300
     const second = await connect(port, board.id, first.resume_token, 'Yönetici');
     assert.equal(second.participant_id, first.participant_id);
     assert.equal(second.role, 'admin');
+    const colleague = await connect(port, board.id, null, 'Ekip arkadaşı');
+    const waitFor = (socket, type) => new Promise(resolve => {
+      const handler = bytes => { const message = JSON.parse(bytes); if (message.type === type) { socket.off('message', handler); resolve(message); } };
+      socket.on('message', handler);
+    });
+    const promoted = waitFor(colleague.ws, 'admin_changed');
+    first.ws.send(JSON.stringify({ type: 'set_admin', participant_id: colleague.participant_id, admin: true }));
+    await promoted;
+    const started = waitFor(colleague.ws, 'timer_changed');
+    colleague.ws.send(JSON.stringify({ type: 'timer_start' }));
+    assert.ok((await started).timer_ends_at > Date.now());
+    const added = waitFor(first.ws, 'card_added');
+    colleague.ws.send(JSON.stringify({ type: 'card_add', column_id: board.columns[0].id, content: 'Öğrendik' }));
+    const addedCard = await added;
+    const moved = waitFor(first.ws, 'card_moved');
+    colleague.ws.send(JSON.stringify({ type: 'card_move', card_id: addedCard.id, column_id: board.columns[1].id }));
+    await moved;
     first.ws.close();
     second.ws.close();
+    colleague.ws.close();
 
     await new Promise(resolve => { child.once('exit', resolve); child.kill(); });
     child = await start();
     const persisted = await (await fetch(`${base}/api/boards/${board.id}`)).json();
     assert.equal(persisted.title, 'Kalıcı retro');
-    assert.equal(persisted.participants.length, 1);
+    assert.equal(persisted.participants.length, 2);
+    assert.equal(persisted.participants.filter(person => person.role === 'admin').length, 2);
+    assert.equal(persisted.weekly_question, 'Bu hafta ne öğrendik?');
+    assert.ok(persisted.timer_ends_at > Date.now());
+    assert.equal(persisted.cards[0].column_id, board.columns[1].id);
 
     const joined = await connect(port, board.id, first.resume_token, 'Yönetici');
     assert.equal(joined.role, 'admin');
