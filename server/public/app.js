@@ -5,6 +5,7 @@ const state = {
   participantId: null,
   boardId: null,
   name: null,
+  recoveryToken: null,
   role: 'participant',
   columns: [],
   status: 'open',
@@ -258,6 +259,9 @@ function requestParticipantName() {
           <span>Anonim katıl</span>
         </label>
 
+        <label class="name-entry-label" for="recoveryCode">Başka adresten dönüyorsanız oturum kodunuz</label>
+        <input id="recoveryCode" class="modern-input" type="text" autocomplete="off" spellcheck="false" placeholder="Varsa oturum kodunu yapıştırın">
+
         <div class="name-entry-actions">
           <button type="button" class="secondary-button" data-cancel>Geri dön</button>
           <button type="submit" class="primary-button">Board'a katıl</button>
@@ -279,6 +283,13 @@ function requestParticipantName() {
 
     form.onsubmit = event => {
       event.preventDefault();
+      const recoveryCode = modal.querySelector('#recoveryCode').value.trim();
+      if (recoveryCode) {
+        if (!/^[a-f0-9]{64}$/.test(recoveryCode)) return alert('Oturum kodu 64 karakter olmalı.');
+        modal.remove();
+        resolve({ name: 'Katılımcı', resumeToken: recoveryCode });
+        return;
+      }
       const name = nameInput.value.trim();
       if (!anonymousInput.checked && !name) {
         nameInput.focus();
@@ -288,7 +299,7 @@ function requestParticipantName() {
       }
       nameInput.setCustomValidity('');
       modal.remove();
-      resolve(anonymousInput.checked ? 'Anonim' : name);
+      resolve({ name: anonymousInput.checked ? 'Anonim' : name });
     };
 
     modal.querySelector('[data-cancel]').onclick = () => {
@@ -667,6 +678,7 @@ async function renderBoard(boardId) {
   state.boardId = boardId;
   const previousIdentity = savedIdentity(boardId);
   state.name = previousIdentity?.name || null;
+  state.recoveryToken = previousIdentity?.resumeToken || null;
   state.participantId = previousIdentity?.participantId || null;
   state.columns = board.columns;
   state.status = board.status;
@@ -681,11 +693,13 @@ async function renderBoard(boardId) {
    */
 
   if (!state.name) {
-    state.name = await requestParticipantName();
-    if (!state.name) {
+    const entry = await requestParticipantName();
+    if (!entry) {
       location.hash = '#/';
       return;
     }
+    state.name = entry.name;
+    state.recoveryToken = entry.resumeToken || null;
   }
 
 
@@ -1221,6 +1235,13 @@ function renderCardEl(
 
           </div>
 
+          <div class="card-emoji-picker" aria-label="Kart emojileri">
+            ${['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'].map(emoji => {
+              const reaction = (card.reactions || []).find(item => item.emoji === emoji);
+              return `<button type="button" class="card-emoji" data-card-emoji="${emoji}" title="${emoji} tepkisi">${emoji}${reaction ? ` ${reaction.count}` : ''}</button>`;
+            }).join('')}
+          </div>
+
 
           ${
             commentsOpen
@@ -1237,6 +1258,9 @@ function renderCardEl(
 
 
   if (!masked) {
+    el.querySelectorAll('[data-card-emoji]').forEach(button => {
+      button.onclick = () => send({ type: 'card_reaction_toggle', card_id: card.id, emoji: button.dataset.cardEmoji });
+    });
 
     const voteButton =
       el.querySelector(
@@ -1783,6 +1807,12 @@ function openParticipantsModal() {
 
       <div>
 
+        <div class="recovery-box">
+          <strong>Oturum kodunuz</strong>
+          <p class="muted">Farklı adres veya tarayıcıdan aynı kullanıcı olarak dönmek için bu özel kodu kullanın. Kimseyle paylaşmayın.</p>
+          <button id="copyRecoveryCode" class="secondary-button" type="button">Oturum kodunu kopyala</button>
+        </div>
+
         ${
           state.participants.length
 
@@ -1850,6 +1880,14 @@ function openParticipantsModal() {
   document.body.appendChild(
     modal
   );
+
+  const copyButton = modal.querySelector('#copyRecoveryCode');
+  copyButton.onclick = async () => {
+    const token = savedIdentity(state.boardId)?.resumeToken;
+    if (!token) return alert('Önce board bağlantısını bekleyin.');
+    try { await navigator.clipboard.writeText(token); copyButton.textContent = 'Kopyalandı'; }
+    catch { prompt('Oturum kodunuzu kopyalayın:', token); }
+  };
 
 
   modal
@@ -2142,7 +2180,7 @@ function connectWs(
       board_id: boardId,
 
       name: state.name,
-      resume_token: savedIdentity(boardId)?.resumeToken
+      resume_token: state.recoveryToken || savedIdentity(boardId)?.resumeToken
 
     });
 
@@ -2166,6 +2204,7 @@ function connectWs(
         case 'joined':
 
           state.name = msg.name;
+          state.recoveryToken = msg.resume_token;
           try {
             localStorage.setItem(`retro:identity:${boardId}`, JSON.stringify({
               participantId: msg.participant_id,
@@ -2209,6 +2248,8 @@ function connectWs(
         case 'card_added':
 
         case 'card_moved':
+
+        case 'card_reactions_changed':
 
         case 'vote_changed':
 
@@ -2318,6 +2359,15 @@ function connectWs(
             'Bir hata oluştu.'
           );
 
+          break;
+
+        case 'identity_invalid':
+          alert(msg.message);
+          localStorage.removeItem(`retro:identity:${boardId}`);
+          state.recoveryToken = null;
+          state.name = null;
+          state.ws.close();
+          renderBoard(boardId);
           break;
 
       }
