@@ -70,6 +70,16 @@ CREATE TABLE IF NOT EXISTS votes (
   FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE,
   UNIQUE(card_id, participant_id)
 );
+CREATE TABLE IF NOT EXISTS card_reactions (
+  id TEXT PRIMARY KEY,
+  card_id TEXT NOT NULL,
+  participant_id TEXT NOT NULL,
+  emoji TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  FOREIGN KEY (card_id) REFERENCES cards(id) ON DELETE CASCADE,
+  FOREIGN KEY (participant_id) REFERENCES participants(id) ON DELETE CASCADE,
+  UNIQUE(card_id, participant_id, emoji)
+);
 CREATE TABLE IF NOT EXISTS comments (
   id TEXT PRIMARY KEY,
   card_id TEXT NOT NULL,
