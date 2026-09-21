@@ -9,6 +9,8 @@ const state = {
   columns: [],
   status: 'open',
   participants: [],
+  timerEndsAt: null,
+  timerMinutes: 0,
   openComments: new Set()
 };
 
@@ -408,23 +410,11 @@ function renderHome() {
           </button>
 
 
-          <div class="section-label">
-            BOARD SÜRESİ
-          </div>
-
-          <div class="ttl-row">
-
-            <input
-              id="ttl"
-              class="modern-input small-input"
-              type="number"
-              value="48"
-              min="1"
-            />
-
-            <span>saat sonra otomatik kapatılsın (rapor saklanır)</span>
-
-          </div>
+          <div class="section-label">BU HAFTANIN SORUSU</div>
+          <input id="weeklyQuestion" class="modern-input" maxlength="500" placeholder="Örn. Bu sprintte en çok ne öğrendik?" required>
+          <div class="section-label">TOPLANTI SÜRESİ (DAKİKA)</div>
+          <input id="timerMinutes" class="modern-input small-input" type="number" value="45" min="1" max="480">
+          <p class="muted">Sayacı board açıldıktan sonra admin başlatır. Board otomatik kapanmaz.</p>
 
 
           <div style="margin-top:24px">
@@ -570,17 +560,14 @@ function renderHome() {
           .filter(Boolean);
 
 
-      const ttl =
-        parseInt(
-          document.getElementById('ttl').value,
-          10
-        ) || 48;
+      const weeklyQuestion = document.getElementById('weeklyQuestion').value.trim();
+      const timerMinutes = Number(document.getElementById('timerMinutes').value);
 
 
-      if (!title || cols.length === 0) {
+      if (!title || cols.length === 0 || !weeklyQuestion || !Number.isInteger(timerMinutes) || timerMinutes < 1 || timerMinutes > 480) {
 
         return alert(
-          'Başlık ve en az bir kolon gerekli.'
+          'Başlık, kolon, haftanın sorusu ve 1-480 dakika toplantı süresi gerekli.'
         );
       }
 
@@ -597,7 +584,8 @@ function renderHome() {
           body: JSON.stringify({
             title,
             columns: cols,
-            ttl_hours: ttl
+            weekly_question: weeklyQuestion,
+            timer_minutes: timerMinutes
           })
 
         });
@@ -657,7 +645,7 @@ async function renderBoard(boardId) {
         <div class="empty-icon">!</div>
         <h2>Board bulunamadı</h2>
         <p class="muted">
-          Board silinmiş veya süresi dolmuş olabilir.
+          Board bulunamadı. Bağlantıyı ve sunucu durumunu kontrol edin.
         </p>
         <button
           class="primary-button"
@@ -682,6 +670,8 @@ async function renderBoard(boardId) {
   state.participantId = previousIdentity?.participantId || null;
   state.columns = board.columns;
   state.status = board.status;
+  state.timerEndsAt = board.timer_ends_at;
+  state.timerMinutes = board.timer_minutes;
   state.participants =
     board.participants || [];
 
@@ -781,6 +771,11 @@ async function renderBoard(boardId) {
 
 
       ${renderSprintDashboard(board)}
+
+      <section class="meeting-bar">
+        <div><span class="eyebrow">BU HAFTANIN SORUSU</span><h2>${escapeHtml(board.weekly_question || 'Bu sprint nasıl geçti?')}</h2></div>
+        <div class="meeting-clock" role="timer" aria-live="off"><span class="eyebrow">TOPLANTI SÜRESİ</span><strong id="timerDisplay">${board.timer_minutes || 0}:00</strong><small id="timerState">Başlatılmadı</small></div>
+      </section>
 
 
       <section
@@ -884,7 +879,18 @@ async function renderBoard(boardId) {
     boardId,
     board.status
   );
+  updateTimer();
 }
+
+function updateTimer() {
+  const display = document.getElementById('timerDisplay');
+  const label = document.getElementById('timerState');
+  if (!display || !label) return;
+  const remaining = state.timerEndsAt ? Math.max(0, Math.ceil((state.timerEndsAt - Date.now()) / 1000)) : (state.timerMinutes || 0) * 60;
+  display.textContent = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  label.textContent = state.timerEndsAt ? (remaining ? 'Kalan süre' : 'Süre doldu · board açık') : 'Başlatılmadı';
+}
+setInterval(updateTimer, 1000);
 
 
 // =========================================================
@@ -952,6 +958,16 @@ function renderColumns(
 
     columnEl.dataset.colId =
       column.id;
+    columnEl.addEventListener('dragover', event => { if (state.status !== 'closed') event.preventDefault(); });
+    columnEl.addEventListener('drop', event => {
+      if (state.status === 'closed') return;
+      event.preventDefault();
+      const cardId = event.dataTransfer.getData('text/plain');
+      if (cardId) send({ type: 'card_move', card_id: cardId, column_id: column.id });
+      columnEl.classList.remove('drop-target');
+    });
+    columnEl.addEventListener('dragenter', () => columnEl.classList.add('drop-target'));
+    columnEl.addEventListener('dragleave', event => { if (!columnEl.contains(event.relatedTarget)) columnEl.classList.remove('drop-target'); });
 
 
     columnEl.innerHTML = `
@@ -1124,6 +1140,12 @@ function renderCardEl(
 
   el.dataset.cardId =
     card.id;
+  el.draggable = boardStatus !== 'closed';
+  el.addEventListener('dragstart', event => {
+    if (event.target.closest('button, input, textarea')) { event.preventDefault(); return; }
+    event.dataTransfer.setData('text/plain', card.id);
+    event.dataTransfer.effectAllowed = 'move';
+  });
 
 
   const author =
@@ -1988,69 +2010,20 @@ function renderAdminPanel() {
 
 
     <div class="transfer-area">
-
-      <div class="transfer-title">
-        👑 Adminliği devret
-      </div>
-
-
-      ${
-        participants.length
-
-          ? `
-
-              <select
-                id="newAdmin"
-                class="modern-input"
-              >
-
-                <option value="">
-                  Katılımcı seçin...
-                </option>
-
-                ${
-                  participants.map(
-                    participant => `
-
-                      <option
-                        value="${participant.id}"
-                      >
-                        ${escapeHtml(
-                          participant.name
-                        )}
-                      </option>
-
-                    `
-                  ).join('')
-                }
-
-              </select>
-
-
-              <button
-                id="transferAdmin"
-                class="small-primary"
-              >
-                Devret
-              </button>
-
-            `
-
-          : `
-
-              <span
-                style="
-                  color:#999;
-                  font-size:12px;
-                "
-              >
-                Adminliği devretmek için başka
-                bir katılımcı gerekli.
-              </span>
-
-            `
-      }
-
+      <div class="transfer-title">👑 Adminleri yönet</div>
+      ${participants.length ? `
+        <select id="newAdmin" class="modern-input">
+          <option value="">Katılımcı seçin...</option>
+          ${participants.map(participant => `<option value="${participant.id}">${escapeHtml(participant.name)} (${participant.role === 'admin' ? 'Admin' : 'Katılımcı'})</option>`).join('')}
+        </select>
+        <button id="grantAdmin" class="small-primary">Admin yap</button>
+        <button id="removeAdmin" class="ghost-button">Adminliği kaldır</button>
+      ` : '<span class="muted">Henüz başka katılımcı yok.</span>'}
+    </div>
+    <div class="transfer-area">
+      <div class="transfer-title">⏱ Toplantı sayacı</div>
+      <button id="startTimer" class="small-primary">Başlat / Yeniden başlat</button>
+      <button id="resetTimer" class="ghost-button">Sıfırla</button>
     </div>
 
   `;
@@ -2114,60 +2087,17 @@ function renderAdminPanel() {
     };
 
 
-  const transferButton =
-    document.getElementById(
-      'transferAdmin'
-    );
-
-
-  if (transferButton) {
-
-    transferButton.onclick =
-      () => {
-
-        const select =
-          document.getElementById(
-            'newAdmin'
-          );
-
-
-        if (!select.value) {
-
-          return alert(
-            'Önce bir katılımcı seçin.'
-          );
-        }
-
-
-        const selectedName =
-          select.options[
-            select.selectedIndex
-          ].text;
-
-
-        if (
-          !confirm(
-            `${selectedName} artık admin olacak. Adminliği devretmek istediğinize emin misiniz?`
-          )
-        ) {
-
-          return;
-        }
-
-
-        send({
-
-          type:
-            'transfer_admin',
-
-          participant_id:
-            select.value
-
-        });
-
-      };
-
+  document.getElementById('startTimer').onclick = () => send({ type: 'timer_start' });
+  document.getElementById('resetTimer').onclick = () => send({ type: 'timer_reset' });
+  for (const [buttonId, makeAdmin] of [['grantAdmin', true], ['removeAdmin', false]]) {
+    const button = document.getElementById(buttonId);
+    if (button) button.onclick = () => {
+      const participantId = document.getElementById('newAdmin').value;
+      if (!participantId) return alert('Katılımcı seçin.');
+      send({ type: 'set_admin', participant_id: participantId, admin: makeAdmin });
+    };
   }
+
 }
 
 
@@ -2278,6 +2208,8 @@ function connectWs(
 
         case 'card_added':
 
+        case 'card_moved':
+
         case 'vote_changed':
 
           await refreshBoardData();
@@ -2344,25 +2276,18 @@ function connectWs(
         // ---------------------------------------------
 
         case 'admin_changed':
-
-          /*
-           * Yeni admin bizsek admin,
-           * değilsek participant.
-           */
-
-          state.role =
-            msg.admin_id ===
-            state.participantId
-
-              ? 'admin'
-
-              : 'participant';
+          if (msg.participant_id === state.participantId) state.role = msg.role;
 
 
           await refreshBoardData();
 
           renderAdminPanel();
 
+          break;
+
+        case 'timer_changed':
+          state.timerEndsAt = msg.timer_ends_at;
+          updateTimer();
           break;
 
 
@@ -2449,6 +2374,9 @@ async function refreshBoardData() {
 
   state.status =
     board.status;
+  state.timerEndsAt = board.timer_ends_at;
+  state.timerMinutes = board.timer_minutes;
+  updateTimer();
 
 
   state.columns =
