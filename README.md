@@ -13,7 +13,7 @@ Login gerektirmez, sonunda otomatik PDF + paylaşılabilir link raporu üretir.
 - Aksiyon maddeleri (sorumlu + tarih)
 - Board kapatıldığında otomatik retro raporu: PDF + kalıcı paylaşılabilir link
 - İsteğe bağlı, anonimleştirilmiş OpenAI özeti içeren ikinci PDF raporu
-- Board verisi TTL ile otomatik silinir (varsayılan 48 saat); rapor bundan bağımsız kalıcıdır
+- Board varsayılan olarak 48 saat sonra kapatılır; kartlar ve rapor saklanır
 
 ## Yerel çalıştırma
 ```bash
@@ -41,16 +41,27 @@ gönderilmez. Üretilen AI özeti veritabanında saklanır; aynı rapor tekrar i
 bir API çağrısı yapılmaz.
 
 ## Docker ile çalıştırma
+
+Üretim ortamında Turso zorunludur. Turso panelindeki veritabanı URL'sini ve oluşturduğunuz
+veritabanı erişim token'ını Render servisinin **Environment** bölümünde sırasıyla
+`TURSO_DATABASE_URL` ve `TURSO_AUTH_TOKEN` olarak tanımlayın. Token'ı GitHub'a eklemeyin.
+`libsql://` (libSQL) ve `turso://` (Turso Database) URL'leri desteklenir.
+Bu iki değer yoksa üretim sunucusu başlamaz; geçici diske sessizce yazılmaz.
+
+Önceden Render'ın geçici diskindeki SQLite dosyasında kalmış veriler Turso'ya otomatik
+taşınmaz. Mevcut retro oturumunuz varsa önce raporunu indirin; servisi yeniden başlatmak
+geçici veriyi kaybettirebilir. Yerelde `npm start` SQLite dosyasıyla çalışmaya devam eder.
+
 ```bash
 docker compose up --build
 ```
 
 ## Mimari
-- **Backend:** Node.js + Express + `ws` (WebSocket) + SQLite (`better-sqlite3`)
+- **Backend:** Node.js + Express + `ws` (WebSocket) + Turso Cloud; yerelde SQLite
 - **Frontend:** Vanilla JS, build adımı gerektirmez, `server/public` altından statik servis edilir
 - **PDF:** `pdfkit`
 - **Veri modeli:** `boards`, `participants`, `cards`, `votes`, `actions`, `reports`, `ai_reports`
-  - `reports` tablosu board silinse bile bağımsız kalır (rapor snapshot'ı JSON olarak saklanır)
+  - `reports` tablosundaki snapshot ile geçici PDF dosyası yeniden oluşturulur
 
 ## Kurumsal revizyon noktaları (bir sonraki adım)
 - SSO / kurumsal login zorunluluğu
