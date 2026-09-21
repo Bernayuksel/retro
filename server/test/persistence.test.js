@@ -102,6 +102,20 @@ test('board, admin identity and report survive a server restart', { timeout: 300
 
     const joined = await connect(port, board.id, first.resume_token, 'Yönetici');
     assert.equal(joined.role, 'admin');
+    const revealed = new Promise(resolve => {
+      const handler = bytes => { if (JSON.parse(bytes).type === 'revealed') { joined.ws.off('message', handler); resolve(); } };
+      joined.ws.on('message', handler);
+    });
+    joined.ws.send(JSON.stringify({ type: 'reveal' }));
+    await revealed;
+    const reacted = new Promise(resolve => {
+      const handler = bytes => { if (JSON.parse(bytes).type === 'card_reactions_changed') { joined.ws.off('message', handler); resolve(); } };
+      joined.ws.on('message', handler);
+    });
+    joined.ws.send(JSON.stringify({ type: 'card_reaction_toggle', card_id: addedCard.id, emoji: '❤️' }));
+    await reacted;
+    const afterReaction = await (await fetch(`${base}/api/boards/${board.id}`)).json();
+    assert.equal(Number(afterReaction.cards[0].reactions.find(item => item.emoji === '❤️').count), 1);
     const closed = new Promise((resolve, reject) => {
       const timer = setTimeout(() => reject(new Error('Rapor oluşturulmadı')), 10000);
       joined.ws.on('message', bytes => {
