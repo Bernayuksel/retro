@@ -422,7 +422,7 @@ function renderHome() {
               min="1"
             />
 
-            <span>saat sonra otomatik silinsin</span>
+            <span>saat sonra otomatik kapatılsın (rapor saklanır)</span>
 
           </div>
 
