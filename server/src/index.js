@@ -79,17 +79,23 @@ app.post('/api/boards', async (req, res) => {
   const {
     title,
     columns,
-    ttl_hours
+    weekly_question,
+    timer_minutes
   } = req.body;
 
   if (
     !title ||
     !Array.isArray(columns) ||
     columns.length === 0 ||
-    columns.length > 5
+    columns.length > 5 ||
+    typeof weekly_question !== 'string' ||
+    !weekly_question.trim() ||
+    weekly_question.length > 500 ||
+    !Number.isInteger(Number(timer_minutes)) ||
+    Number(timer_minutes) < 1 || Number(timer_minutes) > 480
   ) {
     return res.status(400).json({
-      error: 'Geçersiz başlık veya kolon listesi'
+      error: 'Başlık, kolon, haftanın sorusu ve 1-480 dakika toplantı süresi gerekli.'
     });
   }
 
@@ -107,15 +113,17 @@ app.post('/api/boards', async (req, res) => {
       title,
       columns,
       status,
-      ttl_hours,
+      weekly_question,
+      timer_minutes,
       created_at
     )
-    VALUES (?, ?, ?, 'open', ?, ?)
+    VALUES (?, ?, ?, 'open', ?, ?, ?)
   `).run(
     id,
     title,
     JSON.stringify(cols),
-    ttl_hours || 48,
+    weekly_question.trim(),
+    Number(timer_minutes),
     Date.now()
   );
 
@@ -249,6 +257,10 @@ app.get('/api/boards/:id', async (req, res) => {
     title: board.title,
 
     status: board.status,
+
+    weekly_question: board.weekly_question || '',
+    timer_minutes: board.timer_minutes || 0,
+    timer_ends_at: board.timer_ends_at || null,
 
     columns,
 
@@ -544,6 +556,10 @@ wss.on('connection', ws => {
     // =====================================================
 
     if (msg.type === 'card_add') {
+      const board = await db.prepare('SELECT columns, status FROM boards WHERE id = ?').get(currentBoardId);
+      if (!board || board.status === 'closed' || !JSON.parse(board.columns).some(column => column.id === msg.column_id) || typeof msg.content !== 'string' || !msg.content.trim()) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Kart eklenemedi.' }));
+      }
 
       const id = uuidv4();
 
@@ -593,6 +609,17 @@ wss.on('connection', ws => {
         }
       );
 
+      return;
+    }
+
+    if (msg.type === 'card_move') {
+      const board = await db.prepare('SELECT columns, status FROM boards WHERE id = ?').get(currentBoardId);
+      const card = await db.prepare('SELECT id FROM cards WHERE id = ? AND board_id = ?').get(msg.card_id, currentBoardId);
+      if (!board || board.status === 'closed' || !card || !JSON.parse(board.columns).some(column => column.id === msg.column_id)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Kart taşınamadı.' }));
+      }
+      await db.prepare('UPDATE cards SET column_id = ? WHERE id = ? AND board_id = ?').run(msg.column_id, msg.card_id, currentBoardId);
+      broadcast(currentBoardId, { type: 'card_moved' });
       return;
     }
 
@@ -943,7 +970,6 @@ wss.on('connection', ws => {
         WHERE id = ? AND status = 'revealed'
       `).run(currentBoardId);
 
-      broadcast(currentBoardId, { type: 'hidden' });
       return;
     }
 
@@ -952,7 +978,7 @@ wss.on('connection', ws => {
     // TRANSFER ADMIN
     // =====================================================
 
-    if (msg.type === 'transfer_admin') {
+    if (msg.type === 'set_admin') {
 
       if (
         !await isAdmin(
@@ -965,7 +991,7 @@ wss.on('connection', ws => {
           JSON.stringify({
             type: 'error',
             message:
-              'Sadece admin yetki devredebilir.'
+              'Sadece admin yetki değiştirebilir.'
           })
         );
 
@@ -991,45 +1017,35 @@ wss.on('connection', ws => {
       }
 
 
-      if (
-        newAdmin.id ===
-        currentParticipantId
-      ) {
-        return;
+      if (msg.admin === false && newAdmin.role === 'admin') {
+        const admins = await db.prepare("SELECT COUNT(*) AS count FROM participants WHERE board_id = ? AND role = 'admin'").get(currentBoardId);
+        if (Number(admins.count) <= 1) return ws.send(JSON.stringify({ type: 'error', message: 'En az bir admin kalmalı.' }));
       }
-
-
-      await db.prepare(`
-        UPDATE participants
-
-        SET role = 'participant'
-
-        WHERE board_id = ?
-        AND role = 'admin'
-      `).run(currentBoardId);
-
-
-      await db.prepare(`
-        UPDATE participants
-
-        SET role = 'admin'
-
-        WHERE id = ?
-        AND board_id = ?
-      `).run(
-        newAdmin.id,
-        currentBoardId
-      );
+      await db.prepare('UPDATE participants SET role = ? WHERE id = ? AND board_id = ?')
+        .run(msg.admin === true ? 'admin' : 'participant', newAdmin.id, currentBoardId);
 
 
       broadcast(
         currentBoardId,
         {
           type: 'admin_changed',
-          admin_id: newAdmin.id
+          participant_id: newAdmin.id,
+          role: msg.admin === true ? 'admin' : 'participant'
         }
       );
 
+      return;
+    }
+
+    if (msg.type === 'timer_start' || msg.type === 'timer_reset') {
+      if (!await isAdmin(currentParticipantId, currentBoardId)) {
+        return ws.send(JSON.stringify({ type: 'error', message: 'Sayacı yalnızca admin yönetebilir.' }));
+      }
+      const board = await db.prepare('SELECT timer_minutes, status FROM boards WHERE id = ?').get(currentBoardId);
+      if (!board || board.status === 'closed') return;
+      const endsAt = msg.type === 'timer_start' ? Date.now() + Number(board.timer_minutes) * 60000 : null;
+      await db.prepare('UPDATE boards SET timer_ends_at = ? WHERE id = ?').run(endsAt, currentBoardId);
+      broadcast(currentBoardId, { type: 'timer_changed', timer_ends_at: endsAt });
       return;
     }
 
@@ -1117,52 +1133,8 @@ wss.on('connection', ws => {
 
 
 // =========================================================
-// TTL CLEANUP
+// Board yalnızca admin tarafından kapatılır. Otomatik kapanma yoktur.
 // =========================================================
-
-async function cleanupExpiredBoards() {
-
-  const boards =
-    await db
-      .prepare(`
-        SELECT
-          id,
-          created_at,
-          ttl_hours,
-          status
-
-        FROM boards
-      `)
-      .all();
-
-
-  const now =
-    Date.now();
-
-
-  for (const board of boards) {
-
-    if (
-      board.status !== 'closed' &&
-      now - board.created_at >
-      board.ttl_hours *
-      3600 *
-      1000
-    ) {
-
-      await db.prepare(`UPDATE boards SET status = 'closed', closed_at = ? WHERE id = ? AND status != 'closed'`)
-        .run(now, board.id);
-      const { token } = await generateReport(board.id);
-      broadcast(board.id, { type: 'board_closed', report_token: token });
-    }
-  }
-}
-
-
-setInterval(() => {
-  cleanupExpiredBoards().catch(error => console.error('Board süre kontrolü başarısız:', error));
-}, 60 * 60 * 1000);
-
 
 // =========================================================
 // SERVER
