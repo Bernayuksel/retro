@@ -174,6 +174,12 @@ app.get('/api/boards/:id', async (req, res) => {
     `)
     .all(board.id);
 
+  const reactions = await db.prepare(`
+    SELECT r.card_id, r.emoji, COUNT(*) AS count FROM card_reactions r
+    JOIN cards c ON c.id = r.card_id
+    WHERE c.board_id = ? GROUP BY r.card_id, r.emoji
+  `).all(board.id);
+
 
   const comments = await db
     .prepare(`
@@ -285,6 +291,8 @@ app.get('/api/boards/:id', async (req, res) => {
 
       vote_count:
         card.vote_count,
+
+      reactions: board.status === 'open' ? [] : reactions.filter(reaction => reaction.card_id === card.id),
 
       comments:
         board.status === 'open'
@@ -448,6 +456,9 @@ wss.on('connection', ws => {
       const returningParticipant = presentedToken && await db.prepare(`
         SELECT id, name, role FROM participants WHERE board_id = ? AND resume_token = ?
       `).get(currentBoardId, presentedToken);
+      if (msg.resume_token && !returningParticipant) {
+        return ws.send(JSON.stringify({ type: 'identity_invalid', message: 'Oturum kodu geçersiz. Yeni katılımcı olarak giriş yapabilirsiniz.' }));
+      }
 
       currentParticipantId = returningParticipant?.id || uuidv4();
       const resumeToken = returningParticipant ? presentedToken : randomBytes(32).toString('hex');
@@ -620,6 +631,21 @@ wss.on('connection', ws => {
       }
       await db.prepare('UPDATE cards SET column_id = ? WHERE id = ? AND board_id = ?').run(msg.column_id, msg.card_id, currentBoardId);
       broadcast(currentBoardId, { type: 'card_moved' });
+      return;
+    }
+
+    if (msg.type === 'card_reaction_toggle') {
+      const allowed = ['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'];
+      if (!allowed.includes(msg.emoji)) return;
+      const card = await db.prepare(`SELECT c.id FROM cards c JOIN boards b ON b.id = c.board_id WHERE c.id = ? AND c.board_id = ? AND b.status = 'revealed'`)
+        .get(msg.card_id, currentBoardId);
+      if (!card) return;
+      const existing = await db.prepare('SELECT id FROM card_reactions WHERE card_id = ? AND participant_id = ? AND emoji = ?')
+        .get(card.id, currentParticipantId, msg.emoji);
+      if (existing) await db.prepare('DELETE FROM card_reactions WHERE id = ?').run(existing.id);
+      else await db.prepare('INSERT INTO card_reactions (id, card_id, participant_id, emoji, created_at) VALUES (?, ?, ?, ?, ?)')
+        .run(uuidv4(), card.id, currentParticipantId, msg.emoji, Date.now());
+      broadcast(currentBoardId, { type: 'card_reactions_changed' });
       return;
     }
 
