@@ -4,6 +4,7 @@ const http = require('http');
 const path = require('path');
 const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
+const { randomBytes } = require('crypto');
 
 const db = require('./db');
 const { generateReport } = require('./report');
@@ -421,8 +422,14 @@ wss.on('connection', ws => {
       currentBoardId =
         msg.board_id;
 
-      currentParticipantId =
-        uuidv4();
+      const presentedToken = typeof msg.resume_token === 'string' && /^[a-f0-9]{64}$/.test(msg.resume_token)
+        ? msg.resume_token : null;
+      const returningParticipant = presentedToken && db.prepare(`
+        SELECT id, name, role FROM participants WHERE board_id = ? AND resume_token = ?
+      `).get(currentBoardId, presentedToken);
+
+      currentParticipantId = returningParticipant?.id || uuidv4();
+      const resumeToken = returningParticipant ? presentedToken : randomBytes(32).toString('hex');
 
 
       /*
@@ -443,29 +450,28 @@ wss.on('connection', ws => {
           .get(currentBoardId);
 
 
-      const role =
-        existingAdmin
-          ? 'participant'
-          : 'admin';
+      const role = returningParticipant?.role || (existingAdmin ? 'participant' : 'admin');
 
 
-      db.prepare(`
+      if (!returningParticipant) db.prepare(`
         INSERT INTO participants
         (
           id,
           board_id,
           name,
           role,
-          joined_at
+          joined_at,
+          resume_token
         )
 
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?)
       `).run(
         currentParticipantId,
         currentBoardId,
         msg.name || 'Anonim',
         role,
-        Date.now()
+        Date.now(),
+        resumeToken
       );
 
 
@@ -490,13 +496,17 @@ wss.on('connection', ws => {
           participant_id:
             currentParticipantId,
 
+          resume_token: resumeToken,
+
+          name: returningParticipant?.name || msg.name || 'Anonim',
+
           role
 
         })
       );
 
 
-      broadcast(
+      if (!returningParticipant) broadcast(
         currentBoardId,
         {
           type: 'participant_joined',
