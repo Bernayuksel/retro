@@ -124,6 +124,16 @@ async function initialize() {
   // Her bağlantıda yabancı anahtar doğrulaması açık olmalı.
   await db.exec('PRAGMA foreign_keys = ON;');
   await db.exec(schema);
+  const boardColumns = await db.prepare('PRAGMA table_info(boards)').all();
+  for (const [name, definition] of [
+    ['weekly_question', "TEXT NOT NULL DEFAULT ''"],
+    ['timer_minutes', 'INTEGER NOT NULL DEFAULT 0'],
+    ['timer_ends_at', 'INTEGER']
+  ]) {
+    if (!boardColumns.some(column => column.name === name)) {
+      await db.exec(`ALTER TABLE boards ADD COLUMN ${name} ${definition}`);
+    }
+  }
   const participantColumns = await db.prepare('PRAGMA table_info(participants)').all();
   if (!participantColumns.some(column => column.name === 'role')) {
     await db.exec("ALTER TABLE participants ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'");
