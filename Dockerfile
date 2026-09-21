@@ -6,6 +6,6 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/* \
   && npm install --omit=dev
 COPY server/ ./
-ENV PORT=3000
+ENV PORT=3000 NODE_ENV=production
 EXPOSE 3000
 CMD ["node", "src/index.js"]
