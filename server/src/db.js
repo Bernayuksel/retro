@@ -1,6 +1,7 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
+const { randomBytes } = require('crypto');
 
 const DATA_DIR = path.join(__dirname, '..', 'data');
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -98,6 +99,16 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 
 // Eski veritabanları için migration.
 const participantColumns = db.prepare('PRAGMA table_info(participants)').all();
+if (!participantColumns.some(column => column.name === 'resume_token')) {
+  db.exec('ALTER TABLE participants ADD COLUMN resume_token TEXT');
+}
+// Existing users keep their roles after this migration; their next visit creates a new identity.
+const legacyParticipants = db.prepare('SELECT id FROM participants WHERE resume_token IS NULL').all();
+for (const participant of legacyParticipants) {
+  db.prepare('UPDATE participants SET resume_token = ? WHERE id = ?')
+    .run(randomBytes(32).toString('hex'), participant.id);
+}
+db.exec('CREATE UNIQUE INDEX IF NOT EXISTS participants_resume_token ON participants(resume_token)');
 if (!participantColumns.some(column => column.name === 'role')) {
   db.exec(`ALTER TABLE participants ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'`);
 }
