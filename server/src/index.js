@@ -6,9 +6,10 @@ const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { randomBytes } = require('crypto');
 
-const db = require('./db');
-const { generateReport } = require('./report');
-const { generateAiReport } = require('./ai-report');
+const { db, initialize } = require('./db');
+const fs = require('fs');
+const { generateReport, buildPdf } = require('./report');
+const { generateAiReport, buildAiPdf } = require('./ai-report');
 
 const app = express();
 
@@ -45,8 +46,8 @@ function broadcast(boardId, payload) {
 }
 
 
-function getParticipant(participantId) {
-  return db
+async function getParticipant(participantId) {
+  return await db
     .prepare(`
       SELECT *
       FROM participants
@@ -56,8 +57,8 @@ function getParticipant(participantId) {
 }
 
 
-function isAdmin(participantId, boardId) {
-  const participant = db
+async function isAdmin(participantId, boardId) {
+  const participant = await db
     .prepare(`
       SELECT role
       FROM participants
@@ -74,7 +75,7 @@ function isAdmin(participantId, boardId) {
 // CREATE BOARD
 // =========================================================
 
-app.post('/api/boards', (req, res) => {
+app.post('/api/boards', async (req, res) => {
   const {
     title,
     columns,
@@ -99,7 +100,7 @@ app.post('/api/boards', (req, res) => {
     name
   }));
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO boards
     (
       id,
@@ -130,9 +131,9 @@ app.post('/api/boards', (req, res) => {
 // GET BOARD
 // =========================================================
 
-app.get('/api/boards/:id', (req, res) => {
+app.get('/api/boards/:id', async (req, res) => {
 
-  const board = db
+  const board = await db
     .prepare(`
       SELECT *
       FROM boards
@@ -148,7 +149,7 @@ app.get('/api/boards/:id', (req, res) => {
 
   const columns = JSON.parse(board.columns);
 
-  const cards = db
+  const cards = await db
     .prepare(`
       SELECT
         c.*,
@@ -166,7 +167,7 @@ app.get('/api/boards/:id', (req, res) => {
     .all(board.id);
 
 
-  const comments = db
+  const comments = await db
     .prepare(`
       SELECT
         c.id,
@@ -193,7 +194,7 @@ app.get('/api/boards/:id', (req, res) => {
     .all(board.id);
 
 
-  const actions = db
+  const actions = await db
     .prepare(`
       SELECT *
       FROM actions
@@ -203,7 +204,7 @@ app.get('/api/boards/:id', (req, res) => {
     .all(board.id);
 
 
-  const participants = db
+  const participants = await db
     .prepare(`
       SELECT
         id,
@@ -225,7 +226,7 @@ app.get('/api/boards/:id', (req, res) => {
   for (const comment of comments) {
 
     comment.is_anonymous = !!comment.is_anonymous;
-    comment.reactions = db.prepare(`
+    comment.reactions = await db.prepare(`
       SELECT emoji, COUNT(*) AS count
       FROM comment_reactions
       WHERE comment_id = ?
@@ -291,9 +292,9 @@ app.get('/api/boards/:id', (req, res) => {
 // REPORT
 // =========================================================
 
-app.get('/api/reports/:token', (req, res) => {
+app.get('/api/reports/:token', async (req, res) => {
 
-  const report = db
+  const report = await db
     .prepare(`
       SELECT *
       FROM reports
@@ -313,9 +314,9 @@ app.get('/api/reports/:token', (req, res) => {
 });
 
 
-app.get('/api/reports/:token/pdf', (req, res) => {
+app.get('/api/reports/:token/pdf', async (req, res) => {
 
-  const report = db
+  const report = await db
     .prepare(`
       SELECT *
       FROM reports
@@ -327,6 +328,10 @@ app.get('/api/reports/:token/pdf', (req, res) => {
     return res
       .status(404)
       .send('Rapor bulunamadı');
+  }
+
+  if (!fs.existsSync(report.pdf_path)) {
+    await buildPdf(report.pdf_path, JSON.parse(report.snapshot));
   }
 
   res.download(
@@ -356,9 +361,9 @@ app.post('/api/reports/:token/ai', async (req, res) => {
 });
 
 
-app.get('/api/reports/:token/ai-pdf', (req, res) => {
-  const aiReport = db.prepare(`
-    SELECT ai.pdf_path
+app.get('/api/reports/:token/ai-pdf', async (req, res) => {
+  const aiReport = await db.prepare(`
+    SELECT ai.pdf_path, ai.summary, ai.model, r.snapshot
     FROM ai_reports ai
     JOIN reports r ON r.id = ai.report_id
     WHERE r.token = ?
@@ -366,6 +371,10 @@ app.get('/api/reports/:token/ai-pdf', (req, res) => {
 
   if (!aiReport) {
     return res.status(404).send('AI özetli rapor henüz oluşturulmadı');
+  }
+
+  if (!fs.existsSync(aiReport.pdf_path)) {
+    await buildAiPdf(aiReport.pdf_path, JSON.parse(aiReport.snapshot), JSON.parse(aiReport.summary), aiReport.model);
   }
 
   res.download(aiReport.pdf_path, 'retro-ai-ozetli-rapor.pdf');
@@ -382,7 +391,7 @@ wss.on('connection', ws => {
   let currentParticipantId = null;
 
 
-  ws.on('message', raw => {
+  ws.on('message', raw => { void (async () => {
 
     let msg;
 
@@ -399,7 +408,7 @@ wss.on('connection', ws => {
 
     if (msg.type === 'join') {
 
-      const board = db
+      const board = await db
         .prepare(`
           SELECT *
           FROM boards
@@ -424,7 +433,7 @@ wss.on('connection', ws => {
 
       const presentedToken = typeof msg.resume_token === 'string' && /^[a-f0-9]{64}$/.test(msg.resume_token)
         ? msg.resume_token : null;
-      const returningParticipant = presentedToken && db.prepare(`
+      const returningParticipant = presentedToken && await db.prepare(`
         SELECT id, name, role FROM participants WHERE board_id = ? AND resume_token = ?
       `).get(currentBoardId, presentedToken);
 
@@ -437,7 +446,7 @@ wss.on('connection', ws => {
        */
 
       const existingAdmin =
-        db
+        await db
           .prepare(`
             SELECT id
             FROM participants
@@ -453,7 +462,7 @@ wss.on('connection', ws => {
       const role = returningParticipant?.role || (existingAdmin ? 'participant' : 'admin');
 
 
-      if (!returningParticipant) db.prepare(`
+      if (!returningParticipant) await db.prepare(`
         INSERT INTO participants
         (
           id,
@@ -525,7 +534,7 @@ wss.on('connection', ws => {
 
 
     const participant =
-      getParticipant(
+      await getParticipant(
         currentParticipantId
       );
 
@@ -539,7 +548,7 @@ wss.on('connection', ws => {
       const id = uuidv4();
 
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO cards
         (
           id,
@@ -601,7 +610,7 @@ wss.on('connection', ws => {
 
         try {
 
-          db.prepare(`
+          await db.prepare(`
             INSERT INTO votes
             (
               id,
@@ -622,7 +631,7 @@ wss.on('connection', ws => {
 
       } else {
 
-        db.prepare(`
+        await db.prepare(`
           DELETE FROM votes
 
           WHERE card_id = ?
@@ -662,7 +671,7 @@ wss.on('connection', ws => {
 
 
       const card =
-        db.prepare(`
+        await db.prepare(`
           SELECT id
           FROM cards
 
@@ -681,7 +690,7 @@ wss.on('connection', ws => {
       let parentId = msg.parent_id || null;
 
       if (parentId) {
-        const parent = db.prepare(`
+        const parent = await db.prepare(`
           SELECT id FROM comments WHERE id = ? AND card_id = ?
         `).get(parentId, msg.card_id);
         if (!parent) parentId = null;
@@ -691,7 +700,7 @@ wss.on('connection', ws => {
       const id = uuidv4();
 
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO comments
         (
           id,
@@ -743,22 +752,22 @@ wss.on('connection', ws => {
       const emoji = String(msg.emoji || '');
       if (!allowedEmojis.includes(emoji)) return;
 
-      const comment = db.prepare(`
+      const comment = await db.prepare(`
         SELECT c.id FROM comments c
         JOIN cards card ON card.id = c.card_id
         WHERE c.id = ? AND card.board_id = ?
       `).get(msg.comment_id, currentBoardId);
       if (!comment) return;
 
-      const existing = db.prepare(`
+      const existing = await db.prepare(`
         SELECT id FROM comment_reactions
         WHERE comment_id = ? AND participant_id = ? AND emoji = ?
       `).get(msg.comment_id, currentParticipantId, emoji);
 
       if (existing) {
-        db.prepare('DELETE FROM comment_reactions WHERE id = ?').run(existing.id);
+        await db.prepare('DELETE FROM comment_reactions WHERE id = ?').run(existing.id);
       } else {
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO comment_reactions
           (id, comment_id, participant_id, emoji, created_at)
           VALUES (?, ?, ?, ?, ?)
@@ -777,7 +786,7 @@ wss.on('connection', ws => {
     if (msg.type === 'comment_delete') {
 
       const comment =
-        db.prepare(`
+        await db.prepare(`
           SELECT *
           FROM comments
 
@@ -794,7 +803,7 @@ wss.on('connection', ws => {
         comment.participant_id ===
           currentParticipantId ||
 
-        isAdmin(
+        await isAdmin(
           currentParticipantId,
           currentBoardId
         );
@@ -805,7 +814,7 @@ wss.on('connection', ws => {
       }
 
 
-      db.prepare(`
+      await db.prepare(`
         DELETE FROM comments
         WHERE id = ?
       `).run(msg.comment_id);
@@ -832,7 +841,7 @@ wss.on('connection', ws => {
       const id = uuidv4();
 
 
-      db.prepare(`
+      await db.prepare(`
         INSERT INTO actions
         (
           id,
@@ -880,7 +889,7 @@ wss.on('connection', ws => {
     if (msg.type === 'reveal') {
 
       if (
-        !isAdmin(
+        !await isAdmin(
           currentParticipantId,
           currentBoardId
         )
@@ -898,7 +907,7 @@ wss.on('connection', ws => {
       }
 
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE boards
 
         SET status = 'revealed'
@@ -923,12 +932,13 @@ wss.on('connection', ws => {
     // =====================================================
 
     if (msg.type === 'hide') {
-      if (!isAdmin(currentParticipantId, currentBoardId)) {
+      if (!await isAdmin(
+          currentParticipantId, currentBoardId)) {
         ws.send(JSON.stringify({ type: 'error', message: 'Sadece admin kartları gizleyebilir.' }));
         return;
       }
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE boards SET status = 'open'
         WHERE id = ? AND status = 'revealed'
       `).run(currentBoardId);
@@ -945,7 +955,7 @@ wss.on('connection', ws => {
     if (msg.type === 'transfer_admin') {
 
       if (
-        !isAdmin(
+        !await isAdmin(
           currentParticipantId,
           currentBoardId
         )
@@ -964,7 +974,7 @@ wss.on('connection', ws => {
 
 
       const newAdmin =
-        db.prepare(`
+        await db.prepare(`
           SELECT *
           FROM participants
 
@@ -989,7 +999,7 @@ wss.on('connection', ws => {
       }
 
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE participants
 
         SET role = 'participant'
@@ -999,7 +1009,7 @@ wss.on('connection', ws => {
       `).run(currentBoardId);
 
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE participants
 
         SET role = 'admin'
@@ -1031,7 +1041,7 @@ wss.on('connection', ws => {
     if (msg.type === 'board_close') {
 
       if (
-        !isAdmin(
+        !await isAdmin(
           currentParticipantId,
           currentBoardId
         )
@@ -1049,7 +1059,7 @@ wss.on('connection', ws => {
       }
 
 
-      db.prepare(`
+      await db.prepare(`
         UPDATE boards
 
         SET
@@ -1065,7 +1075,7 @@ wss.on('connection', ws => {
 
       const {
         token
-      } = generateReport(
+      } = await generateReport(
         currentBoardId
       );
 
@@ -1081,7 +1091,10 @@ wss.on('connection', ws => {
       return;
     }
 
-  });
+  })().catch(error => {
+    console.error('Board işlemi sırasında hata:', error);
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({type: 'error', message: 'İşlem tamamlanamadı. Tekrar deneyin.'}));
+  }); });
 
 
   // =====================================================
@@ -1107,15 +1120,16 @@ wss.on('connection', ws => {
 // TTL CLEANUP
 // =========================================================
 
-function cleanupExpiredBoards() {
+async function cleanupExpiredBoards() {
 
   const boards =
-    db
+    await db
       .prepare(`
         SELECT
           id,
           created_at,
-          ttl_hours
+          ttl_hours,
+          status
 
         FROM boards
       `)
@@ -1126,32 +1140,28 @@ function cleanupExpiredBoards() {
     Date.now();
 
 
-  const del =
-    db.prepare(`
-      DELETE FROM boards
-      WHERE id = ?
-    `);
-
-
   for (const board of boards) {
 
     if (
+      board.status !== 'closed' &&
       now - board.created_at >
       board.ttl_hours *
       3600 *
       1000
     ) {
 
-      del.run(board.id);
+      await db.prepare(`UPDATE boards SET status = 'closed', closed_at = ? WHERE id = ? AND status != 'closed'`)
+        .run(now, board.id);
+      const { token } = await generateReport(board.id);
+      broadcast(board.id, { type: 'board_closed', report_token: token });
     }
   }
 }
 
 
-setInterval(
-  cleanupExpiredBoards,
-  60 * 60 * 1000
-);
+setInterval(() => {
+  cleanupExpiredBoards().catch(error => console.error('Board süre kontrolü başarısız:', error));
+}, 60 * 60 * 1000);
 
 
 // =========================================================
@@ -1162,11 +1172,6 @@ const PORT =
   process.env.PORT || 3000;
 
 
-server.listen(
-  PORT,
-  () => {
-    console.log(
-      `Retro app http://localhost:${PORT} adresinde çalışıyor`
-    );
-  }
-);
+initialize()
+  .then(() => server.listen(PORT, () => console.log(`Retro app http://localhost:${PORT} adresinde çalışıyor`)))
+  .catch(error => { console.error('Veritabanı başlatılamadı:', error); process.exitCode = 1; });
