@@ -1,0 +1,5 @@
+server/node_modules/
+server/data/
+server/reports/
+.env
+server/.env
