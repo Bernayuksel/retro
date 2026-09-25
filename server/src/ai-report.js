@@ -2,7 +2,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const db = require('./db');
+const { db } = require('./db');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
 const pendingReports = new Map();
@@ -293,11 +293,14 @@ function buildAiPdf(filePath, snapshot, summary, model) {
 }
 
 async function generateAiReport(token) {
-  const report = db.prepare('SELECT * FROM reports WHERE token = ?').get(token);
+  const report = await db.prepare('SELECT * FROM reports WHERE token = ?').get(token);
   if (!report) throw new Error('Rapor bulunamadı');
 
-  const cached = db.prepare('SELECT * FROM ai_reports WHERE report_id = ?').get(report.id);
-  if (cached && fs.existsSync(cached.pdf_path)) {
+  const cached = await db.prepare('SELECT * FROM ai_reports WHERE report_id = ?').get(report.id);
+  if (cached) {
+    if (!fs.existsSync(cached.pdf_path)) {
+      await buildAiPdf(cached.pdf_path, JSON.parse(report.snapshot), JSON.parse(cached.summary), cached.model);
+    }
     return { cached: true, model: cached.model, pdfPath: cached.pdf_path };
   }
 
@@ -309,7 +312,7 @@ async function generateAiReport(token) {
     const id = uuidv4();
     const pdfPath = path.join(REPORTS_DIR, `${id}-ai.pdf`);
     await buildAiPdf(pdfPath, snapshot, summary, model);
-    db.prepare(`
+    await db.prepare(`
       INSERT INTO ai_reports (id, report_id, summary, pdf_path, model, created_at)
       VALUES (?, ?, ?, ?, ?, ?)
       ON CONFLICT(report_id) DO UPDATE SET
