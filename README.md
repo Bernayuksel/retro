@@ -4,7 +4,9 @@
 Login gerektirmez, sonunda otomatik PDF + paylaşılabilir link raporu üretir.
 
 ## Özellikler
-- Board oluşturma (özelleştirilebilir, max 5 kolon)
+- Board oluşturma (özelleştirilebilir, max 5 kolon), her hafta sırayla gösterilen sorular
+- Adminin başlatıp duraklatabildiği toplantı sayacı
+- Kolonlar arasında kart sürükleme, aynı tarayıcıdan katılımcıyı yeniden açma ve birden fazla admin
 - Login yok — sadece isimle katılım
 - Gerçek zamanlı senkronizasyon (WebSocket)
 - Anonim kart ekleme
@@ -13,7 +15,7 @@ Login gerektirmez, sonunda otomatik PDF + paylaşılabilir link raporu üretir.
 - Aksiyon maddeleri (sorumlu + tarih)
 - Board kapatıldığında otomatik retro raporu: PDF + kalıcı paylaşılabilir link
 - İsteğe bağlı, anonimleştirilmiş OpenAI özeti içeren ikinci PDF raporu
-- Board verisi TTL ile otomatik silinir (varsayılan 48 saat); rapor bundan bağımsız kalıcıdır
+- Board'lar otomatik silinmez; kalıcılık için SQLite veri dizinini koruyun
 
 ## Yerel çalıştırma
 ```bash
@@ -46,7 +48,7 @@ docker compose up --build
 ```
 
 ## Mimari
-- **Backend:** Node.js + Express + `ws` (WebSocket) + SQLite (`better-sqlite3`)
+- **Backend:** Node.js + Express + `ws` (WebSocket) + SQLite (`node:sqlite`)
 - **Frontend:** Vanilla JS, build adımı gerektirmez, `server/public` altından statik servis edilir
 - **PDF:** `pdfkit`
 - **Veri modeli:** `boards`, `participants`, `cards`, `votes`, `actions`, `reports`, `ai_reports`

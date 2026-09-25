@@ -77,14 +77,19 @@ app.post('/api/boards', (req, res) => {
   const {
     title,
     columns,
-    ttl_hours
+    weekly_questions = [],
+    timer_minutes = 60
   } = req.body;
 
   if (
     !title ||
     !Array.isArray(columns) ||
     columns.length === 0 ||
-    columns.length > 5
+    columns.length > 5 ||
+    !Array.isArray(weekly_questions) ||
+    weekly_questions.length > 52 ||
+    weekly_questions.some(q => typeof q !== 'string' || !q.trim() || q.length > 500) ||
+    !Number.isInteger(timer_minutes) || timer_minutes < 1 || timer_minutes > 1440
   ) {
     return res.status(400).json({
       error: 'Geçersiz başlık veya kolon listesi'
@@ -105,15 +110,19 @@ app.post('/api/boards', (req, res) => {
       title,
       columns,
       status,
-      ttl_hours,
+      weekly_questions,
+      timer_duration_ms,
+      timer_remaining_ms,
       created_at
     )
-    VALUES (?, ?, ?, 'open', ?, ?)
+    VALUES (?, ?, ?, 'open', ?, ?, ?, ?)
   `).run(
     id,
     title,
     JSON.stringify(cols),
-    ttl_hours || 48,
+    JSON.stringify(weekly_questions.map(q => q.trim())),
+    timer_minutes * 60000,
+    timer_minutes * 60000,
     Date.now()
   );
 
@@ -247,6 +256,17 @@ app.get('/api/boards/:id', (req, res) => {
     title: board.title,
 
     status: board.status,
+
+    weekly_questions: JSON.parse(board.weekly_questions),
+    current_question: (() => {
+      const questions = JSON.parse(board.weekly_questions);
+      return questions.length ? questions[Math.floor((Date.now() - board.created_at) / 604800000) % questions.length] : null;
+    })(),
+    timer: {
+      duration_ms: board.timer_duration_ms,
+      remaining_ms: board.timer_remaining_ms,
+      ends_at: board.timer_ends_at
+    },
 
     columns,
 
@@ -421,8 +441,11 @@ wss.on('connection', ws => {
       currentBoardId =
         msg.board_id;
 
-      currentParticipantId =
-        uuidv4();
+      const existing = typeof msg.participant_id === 'string'
+        ? db.prepare('SELECT * FROM participants WHERE id = ? AND board_id = ?')
+            .get(msg.participant_id, currentBoardId)
+        : null;
+      currentParticipantId = existing?.id || uuidv4();
 
 
       /*
@@ -449,7 +472,7 @@ wss.on('connection', ws => {
           : 'admin';
 
 
-      db.prepare(`
+      if (!existing) db.prepare(`
         INSERT INTO participants
         (
           id,
@@ -463,7 +486,7 @@ wss.on('connection', ws => {
       `).run(
         currentParticipantId,
         currentBoardId,
-        msg.name || 'Anonim',
+        typeof msg.name === 'string' ? msg.name.trim().slice(0, 80) || 'Anonim' : 'Anonim',
         role,
         Date.now()
       );
@@ -490,7 +513,7 @@ wss.on('connection', ws => {
           participant_id:
             currentParticipantId,
 
-          role
+          role: existing?.role || role
 
         })
       );
@@ -518,6 +541,35 @@ wss.on('connection', ws => {
       getParticipant(
         currentParticipantId
       );
+    if (!participant || participant.board_id !== currentBoardId) return;
+
+    if (msg.type === 'timer_control') {
+      if (!isAdmin(currentParticipantId, currentBoardId)) return;
+      const timer = db.prepare('SELECT timer_duration_ms, timer_remaining_ms, timer_ends_at FROM boards WHERE id = ?').get(currentBoardId);
+      const remaining = timer.timer_ends_at === null
+        ? timer.timer_remaining_ms
+        : Math.max(0, timer.timer_ends_at - Date.now());
+      if (!['start', 'pause', 'reset'].includes(msg.action)) return;
+      const next = msg.action === 'reset'
+        ? { remaining_ms: timer.timer_duration_ms, ends_at: null }
+        : msg.action === 'pause'
+          ? { remaining_ms: remaining, ends_at: null }
+          : { remaining_ms: remaining || timer.timer_duration_ms, ends_at: Date.now() + (remaining || timer.timer_duration_ms) };
+      db.prepare('UPDATE boards SET timer_remaining_ms = ?, timer_ends_at = ? WHERE id = ?')
+        .run(next.remaining_ms, next.ends_at, currentBoardId);
+      broadcast(currentBoardId, { type: 'timer_changed' });
+      return;
+    }
+
+    if (msg.type === 'card_move') {
+      const board = db.prepare('SELECT columns, status FROM boards WHERE id = ?').get(currentBoardId);
+      const destination = JSON.parse(board.columns).some(col => col.id === msg.column_id);
+      if (!destination || board.status === 'closed') return;
+      const changed = db.prepare('UPDATE cards SET column_id = ? WHERE id = ? AND board_id = ?')
+        .run(msg.column_id, msg.card_id, currentBoardId);
+      if (changed.changes) broadcast(currentBoardId, { type: 'card_moved' });
+      return;
+    }
 
 
     // =====================================================
@@ -982,17 +1034,7 @@ wss.on('connection', ws => {
       db.prepare(`
         UPDATE participants
 
-        SET role = 'participant'
-
-        WHERE board_id = ?
-        AND role = 'admin'
-      `).run(currentBoardId);
-
-
-      db.prepare(`
-        UPDATE participants
-
-        SET role = 'admin'
+        SET role = CASE WHEN role = 'admin' THEN 'participant' ELSE 'admin' END
 
         WHERE id = ?
         AND board_id = ?
@@ -1094,55 +1136,8 @@ wss.on('connection', ws => {
 
 
 // =========================================================
-// TTL CLEANUP
+// Boards are retained until explicitly closed; historical TTL settings are ignored.
 // =========================================================
-
-function cleanupExpiredBoards() {
-
-  const boards =
-    db
-      .prepare(`
-        SELECT
-          id,
-          created_at,
-          ttl_hours
-
-        FROM boards
-      `)
-      .all();
-
-
-  const now =
-    Date.now();
-
-
-  const del =
-    db.prepare(`
-      DELETE FROM boards
-      WHERE id = ?
-    `);
-
-
-  for (const board of boards) {
-
-    if (
-      now - board.created_at >
-      board.ttl_hours *
-      3600 *
-      1000
-    ) {
-
-      del.run(board.id);
-    }
-  }
-}
-
-
-setInterval(
-  cleanupExpiredBoards,
-  60 * 60 * 1000
-);
-
 
 // =========================================================
 // SERVER

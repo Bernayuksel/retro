@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS ai_reports (
 
 // Eski veritabanları için migration.
 const participantColumns = db.prepare('PRAGMA table_info(participants)').all();
+const boardColumns = db.prepare('PRAGMA table_info(boards)').all();
+for (const [name, definition] of [
+  ['weekly_questions', "TEXT NOT NULL DEFAULT '[]'"],
+  ['timer_duration_ms', 'INTEGER NOT NULL DEFAULT 3600000'],
+  ['timer_remaining_ms', 'INTEGER NOT NULL DEFAULT 3600000'],
+  ['timer_ends_at', 'INTEGER']
+]) {
+  if (!boardColumns.some(column => column.name === name)) {
+    db.exec(`ALTER TABLE boards ADD COLUMN ${name} ${definition}`);
+  }
+}
 if (!participantColumns.some(column => column.name === 'role')) {
   db.exec(`ALTER TABLE participants ADD COLUMN role TEXT NOT NULL DEFAULT 'participant'`);
 }

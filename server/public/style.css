@@ -39,6 +39,24 @@ button {
   cursor: pointer;
 }
 
+.meeting-bar {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+  padding: 20px 24px;
+  margin-bottom: 24px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.meeting-bar p { margin: 8px 0 0; }
+.timer-display { font-size: 26px; font-weight: 750; font-variant-numeric: tabular-nums; margin-top: 6px; }
+.timer-controls { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.retro-card[draggable="true"] { cursor: grab; }
+.retro-card[draggable="true"]:active { cursor: grabbing; }
+.retro-column.drop-target { outline: 3px dashed var(--purple); outline-offset: -5px; }
+
 a {
   text-decoration: none;
 }

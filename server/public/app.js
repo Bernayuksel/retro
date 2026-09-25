@@ -9,7 +9,8 @@ const state = {
   columns: [],
   status: 'open',
   participants: [],
-  openComments: new Set()
+  openComments: new Set(),
+  timer: null
 };
 
 
@@ -400,23 +401,11 @@ function renderHome() {
           </button>
 
 
-          <div class="section-label">
-            BOARD SÜRESİ
-          </div>
-
-          <div class="ttl-row">
-
-            <input
-              id="ttl"
-              class="modern-input small-input"
-              type="number"
-              value="48"
-              min="1"
-            />
-
-            <span>saat sonra otomatik silinsin</span>
-
-          </div>
+          <div class="section-label">HAFTALIK SORULAR</div>
+          <p class="muted">Her satıra bir soru yazın. Her yedi günde sıradaki soru gösterilir.</p>
+          <textarea id="weeklyQuestions" class="modern-input" rows="4" placeholder="Bu hafta en çok ne öğrendik?&#10;Bir sonraki sprintte neyi değiştirelim?"></textarea>
+          <div class="section-label">TOPLANTI SÜRESİ (DAKİKA)</div>
+          <input id="timerMinutes" class="modern-input small-input" type="number" value="60" min="1" max="1440">
 
 
           <div style="margin-top:24px">
@@ -562,11 +551,9 @@ function renderHome() {
           .filter(Boolean);
 
 
-      const ttl =
-        parseInt(
-          document.getElementById('ttl').value,
-          10
-        ) || 48;
+      const weeklyQuestions = document.getElementById('weeklyQuestions').value
+        .split('\n').map(q => q.trim()).filter(Boolean);
+      const timerMinutes = Number(document.getElementById('timerMinutes').value);
 
 
       if (!title || cols.length === 0) {
@@ -574,6 +561,10 @@ function renderHome() {
         return alert(
           'Başlık ve en az bir kolon gerekli.'
         );
+      }
+      if (weeklyQuestions.length > 52 || weeklyQuestions.some(q => q.length > 500) ||
+          !Number.isInteger(timerMinutes) || timerMinutes < 1 || timerMinutes > 1440) {
+        return alert('En fazla 52 soru ve 1–1440 dakika arasında bir süre girin.');
       }
 
 
@@ -589,7 +580,8 @@ function renderHome() {
           body: JSON.stringify({
             title,
             columns: cols,
-            ttl_hours: ttl
+            weekly_questions: weeklyQuestions,
+            timer_minutes: timerMinutes
           })
 
         });
@@ -679,6 +671,9 @@ async function renderBoard(boardId) {
    * Kullanıcı daha önce isim girmediyse sor.
    */
 
+  const savedParticipant = localStorage.getItem(`retro:participant:${boardId}`);
+  const returningMember = board.participants.find(p => p.id === savedParticipant);
+  if (returningMember) state.name = returningMember.name;
   if (!state.name) {
     state.name = await requestParticipantName();
     if (!state.name) {
@@ -768,6 +763,11 @@ async function renderBoard(boardId) {
 
       </section>
 
+      <section class="meeting-bar" aria-label="Toplantı bilgileri">
+        <div><strong>Haftanın sorusu</strong><p id="weeklyQuestion">${escapeHtml(board.current_question || 'Bu board için henüz soru eklenmedi.')}</p></div>
+        <div><strong>Kalan süre</strong><div class="timer-display" id="timerDisplay" role="timer"></div></div>
+      </section>
+
 
       ${renderSprintDashboard(board)}
 
@@ -855,6 +855,7 @@ async function renderBoard(boardId) {
   renderActions(
     board.actions || []
   );
+  updateTimer(board.timer);
 
 
   document
@@ -941,6 +942,20 @@ function renderColumns(
 
     columnEl.dataset.colId =
       column.id;
+    columnEl.addEventListener('dragover', event => {
+      if (state.status === 'closed') return;
+      event.preventDefault();
+      columnEl.classList.add('drop-target');
+    });
+    columnEl.addEventListener('dragleave', event => {
+      if (!columnEl.contains(event.relatedTarget)) columnEl.classList.remove('drop-target');
+    });
+    columnEl.addEventListener('drop', event => {
+      event.preventDefault();
+      columnEl.classList.remove('drop-target');
+      const cardId = event.dataTransfer.getData('text/plain');
+      if (cardId) send({ type: 'card_move', card_id: cardId, column_id: column.id });
+    });
 
 
     columnEl.innerHTML = `
@@ -1113,6 +1128,11 @@ function renderCardEl(
 
   el.dataset.cardId =
     card.id;
+  el.draggable = boardStatus !== 'closed';
+  el.addEventListener('dragstart', event => {
+    event.dataTransfer.setData('text/plain', card.id);
+    event.dataTransfer.effectAllowed = 'move';
+  });
 
 
   const author =
@@ -1977,9 +1997,18 @@ function renderAdminPanel() {
 
 
     <div class="transfer-area">
+      <div class="transfer-title">⏱ Toplantı sayacı</div>
+      <div class="timer-controls">
+        <button class="small-primary" id="timerStart" type="button">Başlat / devam et</button>
+        <button class="small-primary" id="timerPause" type="button">Duraklat</button>
+        <button class="small-primary" id="timerReset" type="button">Sıfırla</button>
+      </div>
+    </div>
+
+    <div class="transfer-area">
 
       <div class="transfer-title">
-        👑 Adminliği devret
+        👑 Admin yetkileri
       </div>
 
 
@@ -2004,9 +2033,7 @@ function renderAdminPanel() {
                       <option
                         value="${participant.id}"
                       >
-                        ${escapeHtml(
-                          participant.name
-                        )}
+                        ${escapeHtml(participant.name)}${participant.role === 'admin' ? ' (admin)' : ''}
                       </option>
 
                     `
@@ -2020,7 +2047,7 @@ function renderAdminPanel() {
                 id="transferAdmin"
                 class="small-primary"
               >
-                Devret
+                Yetkiyi değiştir
               </button>
 
             `
@@ -2043,6 +2070,10 @@ function renderAdminPanel() {
     </div>
 
   `;
+
+  for (const [id, action] of [['timerStart', 'start'], ['timerPause', 'pause'], ['timerReset', 'reset']]) {
+    document.getElementById(id).onclick = () => send({ type: 'timer_control', action });
+  }
 
 
   document
@@ -2136,7 +2167,7 @@ function renderAdminPanel() {
 
         if (
           !confirm(
-            `${selectedName} artık admin olacak. Adminliği devretmek istediğinize emin misiniz?`
+            `${selectedName} için admin yetkisini değiştirmek istediğinize emin misiniz?`
           )
         ) {
 
@@ -2200,7 +2231,8 @@ function connectWs(
 
       board_id: boardId,
 
-      name: state.name
+      name: state.name,
+      participant_id: localStorage.getItem(`retro:participant:${boardId}`)
 
     });
 
@@ -2225,6 +2257,7 @@ function connectWs(
 
           state.participantId =
             msg.participant_id;
+          localStorage.setItem(`retro:participant:${boardId}`, msg.participant_id);
 
 
           state.role =
@@ -2254,6 +2287,10 @@ function connectWs(
         // ---------------------------------------------
 
         case 'card_added':
+
+        case 'card_moved':
+
+        case 'timer_changed':
 
         case 'vote_changed':
 
@@ -2327,15 +2364,6 @@ function connectWs(
            * değilsek participant.
            */
 
-          state.role =
-            msg.admin_id ===
-            state.participantId
-
-              ? 'admin'
-
-              : 'participant';
-
-
           await refreshBoardData();
 
           renderAdminPanel();
@@ -2400,6 +2428,23 @@ function send(payload) {
     );
   }
 }
+
+function updateTimer(timer) {
+  state.timer = timer;
+  paintTimer();
+}
+
+function paintTimer() {
+  const display = document.getElementById('timerDisplay');
+  if (!display || !state.timer) return;
+  const remaining = state.timer.ends_at === null
+    ? state.timer.remaining_ms
+    : Math.max(0, state.timer.ends_at - Date.now());
+  const seconds = Math.ceil(remaining / 1000);
+  display.textContent = `${String(Math.floor(seconds / 3600)).padStart(2, '0')}:${String(Math.floor(seconds % 3600 / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+}
+
+setInterval(paintTimer, 1000);
 
 
 // =========================================================
@@ -2466,6 +2511,9 @@ async function refreshBoardData() {
   renderActions(
     board.actions || []
   );
+  const question = document.getElementById('weeklyQuestion');
+  if (question) question.textContent = board.current_question || 'Bu board için henüz soru eklenmedi.';
+  updateTimer(board.timer);
 
 
   updateStatusBadge(
