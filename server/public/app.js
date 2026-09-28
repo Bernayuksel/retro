@@ -5,12 +5,23 @@ const state = {
   participantId: null,
   boardId: null,
   name: null,
+  recoveryToken: null,
   role: 'participant',
   columns: [],
   status: 'open',
   participants: [],
+  timerEndsAt: null,
+  timerMinutes: 0,
   openComments: new Set()
 };
+
+function savedIdentity(boardId) {
+  try {
+    return JSON.parse(localStorage.getItem(`retro:identity:${boardId}`) || 'null');
+  } catch {
+    return null;
+  }
+}
 
 
 // =========================================================
@@ -248,6 +259,9 @@ function requestParticipantName() {
           <span>Anonim katıl</span>
         </label>
 
+        <label class="name-entry-label" for="recoveryCode">Başka adresten dönüyorsanız oturum kodunuz</label>
+        <input id="recoveryCode" class="modern-input" type="text" autocomplete="off" spellcheck="false" placeholder="Varsa oturum kodunu yapıştırın">
+
         <div class="name-entry-actions">
           <button type="button" class="secondary-button" data-cancel>Geri dön</button>
           <button type="submit" class="primary-button">Board'a katıl</button>
@@ -269,6 +283,13 @@ function requestParticipantName() {
 
     form.onsubmit = event => {
       event.preventDefault();
+      const recoveryCode = modal.querySelector('#recoveryCode').value.trim();
+      if (recoveryCode) {
+        if (!/^[a-f0-9]{64}$/.test(recoveryCode)) return alert('Oturum kodu 64 karakter olmalı.');
+        modal.remove();
+        resolve({ name: 'Katılımcı', resumeToken: recoveryCode });
+        return;
+      }
       const name = nameInput.value.trim();
       if (!anonymousInput.checked && !name) {
         nameInput.focus();
@@ -278,7 +299,7 @@ function requestParticipantName() {
       }
       nameInput.setCustomValidity('');
       modal.remove();
-      resolve(anonymousInput.checked ? 'Anonim' : name);
+      resolve({ name: anonymousInput.checked ? 'Anonim' : name });
     };
 
     modal.querySelector('[data-cancel]').onclick = () => {
@@ -400,23 +421,11 @@ function renderHome() {
           </button>
 
 
-          <div class="section-label">
-            BOARD SÜRESİ
-          </div>
-
-          <div class="ttl-row">
-
-            <input
-              id="ttl"
-              class="modern-input small-input"
-              type="number"
-              value="48"
-              min="1"
-            />
-
-            <span>saat sonra otomatik silinsin</span>
-
-          </div>
+          <div class="section-label">BU HAFTANIN SORUSU</div>
+          <input id="weeklyQuestion" class="modern-input" maxlength="500" placeholder="Örn. Bu sprintte en çok ne öğrendik?" required>
+          <div class="section-label">TOPLANTI SÜRESİ (DAKİKA)</div>
+          <input id="timerMinutes" class="modern-input small-input" type="number" value="45" min="1" max="480">
+          <p class="muted">Sayacı board açıldıktan sonra admin başlatır. Board otomatik kapanmaz.</p>
 
 
           <div style="margin-top:24px">
@@ -562,17 +571,14 @@ function renderHome() {
           .filter(Boolean);
 
 
-      const ttl =
-        parseInt(
-          document.getElementById('ttl').value,
-          10
-        ) || 48;
+      const weeklyQuestion = document.getElementById('weeklyQuestion').value.trim();
+      const timerMinutes = Number(document.getElementById('timerMinutes').value);
 
 
-      if (!title || cols.length === 0) {
+      if (!title || cols.length === 0 || !weeklyQuestion || !Number.isInteger(timerMinutes) || timerMinutes < 1 || timerMinutes > 480) {
 
         return alert(
-          'Başlık ve en az bir kolon gerekli.'
+          'Başlık, kolon, haftanın sorusu ve 1-480 dakika toplantı süresi gerekli.'
         );
       }
 
@@ -589,7 +595,8 @@ function renderHome() {
           body: JSON.stringify({
             title,
             columns: cols,
-            ttl_hours: ttl
+            weekly_question: weeklyQuestion,
+            timer_minutes: timerMinutes
           })
 
         });
@@ -649,7 +656,7 @@ async function renderBoard(boardId) {
         <div class="empty-icon">!</div>
         <h2>Board bulunamadı</h2>
         <p class="muted">
-          Board silinmiş veya süresi dolmuş olabilir.
+          Board bulunamadı. Bağlantıyı ve sunucu durumunu kontrol edin.
         </p>
         <button
           class="primary-button"
@@ -669,8 +676,14 @@ async function renderBoard(boardId) {
 
 
   state.boardId = boardId;
+  const previousIdentity = savedIdentity(boardId);
+  state.name = previousIdentity?.name || null;
+  state.recoveryToken = previousIdentity?.resumeToken || null;
+  state.participantId = previousIdentity?.participantId || null;
   state.columns = board.columns;
   state.status = board.status;
+  state.timerEndsAt = board.timer_ends_at;
+  state.timerMinutes = board.timer_minutes;
   state.participants =
     board.participants || [];
 
@@ -680,11 +693,13 @@ async function renderBoard(boardId) {
    */
 
   if (!state.name) {
-    state.name = await requestParticipantName();
-    if (!state.name) {
+    const entry = await requestParticipantName();
+    if (!entry) {
       location.hash = '#/';
       return;
     }
+    state.name = entry.name;
+    state.recoveryToken = entry.resumeToken || null;
   }
 
 
@@ -770,6 +785,11 @@ async function renderBoard(boardId) {
 
 
       ${renderSprintDashboard(board)}
+
+      <section class="meeting-bar">
+        <div><span class="eyebrow">BU HAFTANIN SORUSU</span><h2>${escapeHtml(board.weekly_question || 'Bu sprint nasıl geçti?')}</h2></div>
+        <div class="meeting-clock" role="timer" aria-live="off"><span class="eyebrow">TOPLANTI SÜRESİ</span><strong id="timerDisplay">${board.timer_minutes || 0}:00</strong><small id="timerState">Başlatılmadı</small></div>
+      </section>
 
 
       <section
@@ -873,7 +893,18 @@ async function renderBoard(boardId) {
     boardId,
     board.status
   );
+  updateTimer();
 }
+
+function updateTimer() {
+  const display = document.getElementById('timerDisplay');
+  const label = document.getElementById('timerState');
+  if (!display || !label) return;
+  const remaining = state.timerEndsAt ? Math.max(0, Math.ceil((state.timerEndsAt - Date.now()) / 1000)) : (state.timerMinutes || 0) * 60;
+  display.textContent = `${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`;
+  label.textContent = state.timerEndsAt ? (remaining ? 'Kalan süre' : 'Süre doldu · board açık') : 'Başlatılmadı';
+}
+setInterval(updateTimer, 1000);
 
 
 // =========================================================
@@ -941,6 +972,16 @@ function renderColumns(
 
     columnEl.dataset.colId =
       column.id;
+    columnEl.addEventListener('dragover', event => { if (state.status !== 'closed') event.preventDefault(); });
+    columnEl.addEventListener('drop', event => {
+      if (state.status === 'closed') return;
+      event.preventDefault();
+      const cardId = event.dataTransfer.getData('text/plain');
+      if (cardId) send({ type: 'card_move', card_id: cardId, column_id: column.id });
+      columnEl.classList.remove('drop-target');
+    });
+    columnEl.addEventListener('dragenter', () => columnEl.classList.add('drop-target'));
+    columnEl.addEventListener('dragleave', event => { if (!columnEl.contains(event.relatedTarget)) columnEl.classList.remove('drop-target'); });
 
 
     columnEl.innerHTML = `
@@ -1113,6 +1154,12 @@ function renderCardEl(
 
   el.dataset.cardId =
     card.id;
+  el.draggable = boardStatus !== 'closed';
+  el.addEventListener('dragstart', event => {
+    if (event.target.closest('button, input, textarea')) { event.preventDefault(); return; }
+    event.dataTransfer.setData('text/plain', card.id);
+    event.dataTransfer.effectAllowed = 'move';
+  });
 
 
   const author =
@@ -1188,6 +1235,13 @@ function renderCardEl(
 
           </div>
 
+          <div class="card-emoji-picker" aria-label="Kart emojileri">
+            ${['👍', '❤️', '😂', '😮', '🎯', '👏', '👎'].map(emoji => {
+              const reaction = (card.reactions || []).find(item => item.emoji === emoji);
+              return `<button type="button" class="card-emoji" data-card-emoji="${emoji}" title="${emoji} tepkisi">${emoji}${reaction ? ` ${reaction.count}` : ''}</button>`;
+            }).join('')}
+          </div>
+
 
           ${
             commentsOpen
@@ -1204,6 +1258,9 @@ function renderCardEl(
 
 
   if (!masked) {
+    el.querySelectorAll('[data-card-emoji]').forEach(button => {
+      button.onclick = () => send({ type: 'card_reaction_toggle', card_id: card.id, emoji: button.dataset.cardEmoji });
+    });
 
     const voteButton =
       el.querySelector(
@@ -1750,6 +1807,12 @@ function openParticipantsModal() {
 
       <div>
 
+        <div class="recovery-box">
+          <strong>Oturum kodunuz</strong>
+          <p class="muted">Farklı adres veya tarayıcıdan aynı kullanıcı olarak dönmek için bu özel kodu kullanın. Kimseyle paylaşmayın.</p>
+          <button id="copyRecoveryCode" class="secondary-button" type="button">Oturum kodunu kopyala</button>
+        </div>
+
         ${
           state.participants.length
 
@@ -1817,6 +1880,14 @@ function openParticipantsModal() {
   document.body.appendChild(
     modal
   );
+
+  const copyButton = modal.querySelector('#copyRecoveryCode');
+  copyButton.onclick = async () => {
+    const token = savedIdentity(state.boardId)?.resumeToken;
+    if (!token) return alert('Önce board bağlantısını bekleyin.');
+    try { await navigator.clipboard.writeText(token); copyButton.textContent = 'Kopyalandı'; }
+    catch { prompt('Oturum kodunuzu kopyalayın:', token); }
+  };
 
 
   modal
@@ -1977,69 +2048,20 @@ function renderAdminPanel() {
 
 
     <div class="transfer-area">
-
-      <div class="transfer-title">
-        👑 Adminliği devret
-      </div>
-
-
-      ${
-        participants.length
-
-          ? `
-
-              <select
-                id="newAdmin"
-                class="modern-input"
-              >
-
-                <option value="">
-                  Katılımcı seçin...
-                </option>
-
-                ${
-                  participants.map(
-                    participant => `
-
-                      <option
-                        value="${participant.id}"
-                      >
-                        ${escapeHtml(
-                          participant.name
-                        )}
-                      </option>
-
-                    `
-                  ).join('')
-                }
-
-              </select>
-
-
-              <button
-                id="transferAdmin"
-                class="small-primary"
-              >
-                Devret
-              </button>
-
-            `
-
-          : `
-
-              <span
-                style="
-                  color:#999;
-                  font-size:12px;
-                "
-              >
-                Adminliği devretmek için başka
-                bir katılımcı gerekli.
-              </span>
-
-            `
-      }
-
+      <div class="transfer-title">👑 Adminleri yönet</div>
+      ${participants.length ? `
+        <select id="newAdmin" class="modern-input">
+          <option value="">Katılımcı seçin...</option>
+          ${participants.map(participant => `<option value="${participant.id}">${escapeHtml(participant.name)} (${participant.role === 'admin' ? 'Admin' : 'Katılımcı'})</option>`).join('')}
+        </select>
+        <button id="grantAdmin" class="small-primary">Admin yap</button>
+        <button id="removeAdmin" class="ghost-button">Adminliği kaldır</button>
+      ` : '<span class="muted">Henüz başka katılımcı yok.</span>'}
+    </div>
+    <div class="transfer-area">
+      <div class="transfer-title">⏱ Toplantı sayacı</div>
+      <button id="startTimer" class="small-primary">Başlat / Yeniden başlat</button>
+      <button id="resetTimer" class="ghost-button">Sıfırla</button>
     </div>
 
   `;
@@ -2103,60 +2125,17 @@ function renderAdminPanel() {
     };
 
 
-  const transferButton =
-    document.getElementById(
-      'transferAdmin'
-    );
-
-
-  if (transferButton) {
-
-    transferButton.onclick =
-      () => {
-
-        const select =
-          document.getElementById(
-            'newAdmin'
-          );
-
-
-        if (!select.value) {
-
-          return alert(
-            'Önce bir katılımcı seçin.'
-          );
-        }
-
-
-        const selectedName =
-          select.options[
-            select.selectedIndex
-          ].text;
-
-
-        if (
-          !confirm(
-            `${selectedName} artık admin olacak. Adminliği devretmek istediğinize emin misiniz?`
-          )
-        ) {
-
-          return;
-        }
-
-
-        send({
-
-          type:
-            'transfer_admin',
-
-          participant_id:
-            select.value
-
-        });
-
-      };
-
+  document.getElementById('startTimer').onclick = () => send({ type: 'timer_start' });
+  document.getElementById('resetTimer').onclick = () => send({ type: 'timer_reset' });
+  for (const [buttonId, makeAdmin] of [['grantAdmin', true], ['removeAdmin', false]]) {
+    const button = document.getElementById(buttonId);
+    if (button) button.onclick = () => {
+      const participantId = document.getElementById('newAdmin').value;
+      if (!participantId) return alert('Katılımcı seçin.');
+      send({ type: 'set_admin', participant_id: participantId, admin: makeAdmin });
+    };
   }
+
 }
 
 
@@ -2200,7 +2179,8 @@ function connectWs(
 
       board_id: boardId,
 
-      name: state.name
+      name: state.name,
+      resume_token: state.recoveryToken || savedIdentity(boardId)?.resumeToken
 
     });
 
@@ -2222,6 +2202,18 @@ function connectWs(
         // ---------------------------------------------
 
         case 'joined':
+
+          state.name = msg.name;
+          state.recoveryToken = msg.resume_token;
+          try {
+            localStorage.setItem(`retro:identity:${boardId}`, JSON.stringify({
+              participantId: msg.participant_id,
+              resumeToken: msg.resume_token,
+              name: msg.name
+            }));
+          } catch (error) {
+            console.warn('Katılımcı kimliği tarayıcıya kaydedilemedi', error);
+          }
 
           state.participantId =
             msg.participant_id;
@@ -2254,6 +2246,10 @@ function connectWs(
         // ---------------------------------------------
 
         case 'card_added':
+
+        case 'card_moved':
+
+        case 'card_reactions_changed':
 
         case 'vote_changed':
 
@@ -2321,25 +2317,18 @@ function connectWs(
         // ---------------------------------------------
 
         case 'admin_changed':
-
-          /*
-           * Yeni admin bizsek admin,
-           * değilsek participant.
-           */
-
-          state.role =
-            msg.admin_id ===
-            state.participantId
-
-              ? 'admin'
-
-              : 'participant';
+          if (msg.participant_id === state.participantId) state.role = msg.role;
 
 
           await refreshBoardData();
 
           renderAdminPanel();
 
+          break;
+
+        case 'timer_changed':
+          state.timerEndsAt = msg.timer_ends_at;
+          updateTimer();
           break;
 
 
@@ -2370,6 +2359,15 @@ function connectWs(
             'Bir hata oluştu.'
           );
 
+          break;
+
+        case 'identity_invalid':
+          alert(msg.message);
+          localStorage.removeItem(`retro:identity:${boardId}`);
+          state.recoveryToken = null;
+          state.name = null;
+          state.ws.close();
+          renderBoard(boardId);
           break;
 
       }
@@ -2426,6 +2424,9 @@ async function refreshBoardData() {
 
   state.status =
     board.status;
+  state.timerEndsAt = board.timer_ends_at;
+  state.timerMinutes = board.timer_minutes;
+  updateTimer();
 
 
   state.columns =
