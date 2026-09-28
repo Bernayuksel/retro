@@ -25,6 +25,34 @@ npm start
 ```
 Tarayıcıda `http://localhost:3000` adresini aç.
 
+## GitHub Project sprint seçimi
+
+`server/.env.example` dosyasını yerelde `server/.env.local` adıyla kopyalayıp
+değerleri doldurun veya sunucunun ortam değişkenleri olarak ayarlayın:
+`GITHUB_TOKEN` (Project için salt okuma erişimi), `GITHUB_ORG`,
+`GITHUB_PROJECT_NUMBER`, `GITHUB_PROJECT_ACCESS_KEY` (GitHub token'ından
+ayrı, rastgele üretilmiş en az 24 karakterlik erişim anahtarı). Gerekirse
+`GITHUB_BOARD_FIELD`, `GITHUB_SPRINT_FIELD`, `GITHUB_STATUS_FIELD`,
+`GITHUB_POINTS_FIELD` ve `GITHUB_DONE_STATUSES` değerlerini Project alanlarıyla
+eşleştirin. Gerçek değerleri Git'e veya tarayıcı koduna koymayın.
+
+PowerShell örneği (dosya Git tarafından yok sayılır):
+
+```powershell
+Copy-Item server/.env.example server/.env.local
+# server/.env.local dosyasını VS Code ile açıp değerleri doldurun.
+cd server
+npm start
+```
+
+Board kuran kişi erişim anahtarını arayüzde bir kez girer; sunucu sekiz saatlik
+HTTP-only oturum çerezi üretir. GitHub bağlantısı etkinse board başlığı alanı
+Project board ve mevcut sprint dropdown'una dönüşür. Seçilen sprintin özeti
+board ve rapora kaydedilir. GitHub'a erişilemiyorsa board oluşturulmaz ve
+örnek istatistikler gösterilmez. Bağlantı yapılandırılmamışsa önceki manuel
+board oluşturma akışı çalışır. Şirket verisi içeren board bağlantılarını yalnızca
+yetkili katılımcılarla paylaşın; uygulamayı üretimde HTTPS ile çalıştırın.
+
 ## AI özetli rapor
 
 AI özetli PDF için OpenAI API anahtarını sunucuyu başlatmadan önce ortam değişkeni olarak tanımlayın.

@@ -42,26 +42,7 @@ function getSprintDashboard(board) {
     }
   }
 
-  return {
-    isDemo: true,
-    name: 'Sprint özeti',
-    dateRange: 'GitHub bağlantısı bekleniyor',
-    totalItems: 24,
-    completedItems: 18,
-    carriedItems: 6,
-    plannedPoints: 60,
-    completedPoints: 45,
-    itemTypes: [
-      { label: 'User Story', value: 11 },
-      { label: 'Bug', value: 5 },
-      { label: 'Task', value: 2 }
-    ],
-    contributors: [
-      { name: 'Örnek Kullanıcı 1', completed: 7, points: 18 },
-      { name: 'Örnek Kullanıcı 2', completed: 6, points: 15 },
-      { name: 'Örnek Kullanıcı 3', completed: 5, points: 12 }
-    ]
-  };
+  return null;
 }
 
 async function generateReport(boardId) {
@@ -259,7 +240,7 @@ function buildPdf(filePath, snapshot) {
     statCard(46, cardsY, cardWidth, 'TAMAMLANMA', `%${completionRate}`, `${dashboard.completedItems} / ${dashboard.totalItems} madde`, colors.purpleSoft);
     statCard(46 + cardWidth + gap, cardsY, cardWidth, 'TAMAMLANAN EFOR', dashboard.completedPoints, `${dashboard.plannedPoints} SP planlandı`, colors.greenSoft);
     statCard(46 + (cardWidth + gap) * 2, cardsY, cardWidth, 'TAMAMLANAN', dashboard.completedItems, 'sprint içinde', colors.surface);
-    statCard(46 + (cardWidth + gap) * 3, cardsY, cardWidth, 'DEVREDEN', dashboard.carriedItems, 'sonraki sprinte', colors.amberSoft);
+    statCard(46 + (cardWidth + gap) * 3, cardsY, cardWidth, 'TAMAMLANMAYAN', dashboard.carriedItems, 'açık madde', colors.amberSoft);
     doc.y = cardsY + 82;
 
     const panelGap = 12;

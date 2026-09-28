@@ -140,7 +140,11 @@ async function initialize() {
     ['weekly_questions', "TEXT NOT NULL DEFAULT '[]'"],
     ['timer_minutes', 'INTEGER NOT NULL DEFAULT 0'],
     ['timer_remaining_ms', 'INTEGER'],
-    ['timer_ends_at', 'INTEGER']
+    ['timer_ends_at', 'INTEGER'],
+    ['sprint_dashboard', 'TEXT'],
+    ['github_members', 'TEXT'],
+    ['github_board', 'TEXT'],
+    ['github_iteration_id', 'TEXT']
   ]) {
     if (!boardColumns.some(column => column.name === name)) {
       await db.exec(`ALTER TABLE boards ADD COLUMN ${name} ${definition}`);

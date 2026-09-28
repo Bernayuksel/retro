@@ -75,31 +75,13 @@ function getSprintDashboardData(board) {
     return board.sprint_dashboard;
   }
 
-  return {
-    isDemo: true,
-    name: 'Sprint özeti',
-    dateRange: 'GitHub bağlantısı bekleniyor',
-    totalItems: 24,
-    completedItems: 18,
-    carriedItems: 6,
-    plannedPoints: 60,
-    completedPoints: 45,
-    itemTypes: [
-      { label: 'User Story', value: 11, color: '#635bff' },
-      { label: 'Bug', value: 5, color: '#ef6a67' },
-      { label: 'Task', value: 2, color: '#30a46c' }
-    ],
-    contributors: [
-      { name: 'Örnek Kullanıcı 1', completed: 7, points: 18 },
-      { name: 'Örnek Kullanıcı 2', completed: 6, points: 15 },
-      { name: 'Örnek Kullanıcı 3', completed: 5, points: 12 }
-    ]
-  };
+  return null;
 }
 
 
 function renderSprintDashboard(board) {
   const dashboard = getSprintDashboardData(board);
+  if (!dashboard) return '<section class="sprint-dashboard"><p class="muted">Bu board için GitHub sprint verisi bağlanmadı.</p></section>';
   const completionRate = dashboard.totalItems
     ? Math.round((dashboard.completedItems / dashboard.totalItems) * 100)
     : 0;
@@ -121,7 +103,7 @@ function renderSprintDashboard(board) {
         </div>
         ${dashboard.isDemo ? `
           <span class="dashboard-source-badge">
-            Örnek veri · GitHub bağlantısı bekleniyor
+            GitHub bağlantısı bekleniyor
           </span>
         ` : `
           <span class="dashboard-source-badge connected">GitHub Project</span>
@@ -145,7 +127,7 @@ function renderSprintDashboard(board) {
           <small>Sprint içinde tamamlandı</small>
         </article>
         <article class="sprint-stat-card warning">
-          <span>Devreden madde</span>
+          <span>Tamamlanmayan madde</span>
           <strong>${dashboard.carriedItems}</strong>
           <small>Sonraki sprinte kaldı</small>
         </article>
@@ -405,6 +387,8 @@ function renderHome() {
             class="modern-input"
             placeholder="Örn. Sprint 24 Retro"
           />
+          <div id="githubSelectionArea"></div>
+          <p id="githubSelectionNote" class="muted" aria-live="polite"></p>
 
 
           <div class="section-label">
@@ -541,6 +525,7 @@ function renderHome() {
 
 
   defaultCols.forEach(addColRow);
+  window.initGithubBoardSelect?.();
 
 
   document.getElementById('addCol').onclick =
@@ -565,6 +550,10 @@ function renderHome() {
           .getElementById('title')
           .value
           .trim();
+      const githubSelection = window.getGithubSelection?.();
+      if (document.getElementById('title').tagName === 'SELECT' && !githubSelection) {
+        return alert('Önce bir GitHub board ve sprint seçin.');
+      }
 
 
       const cols =
@@ -598,7 +587,9 @@ function renderHome() {
             title,
             columns: cols,
             weekly_questions: weeklyQuestions,
-            timer_minutes: timerMinutes
+            timer_minutes: timerMinutes,
+            github_board: githubSelection?.board,
+            github_iteration_id: githubSelection?.iterationId
           })
 
         });

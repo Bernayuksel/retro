@@ -1,70 +1,85 @@
-// Board başlığı textbox'ını GitHub board/sprint dropdown'una çevirir.
-// Kullanım (index.html içinde, uygulama script'inden ÖNCE):
-//   <script src="github-board-select.js" data-input="#boardTitle"></script>
-// data-input: mevcut board başlığı input'unun CSS seçicisi.
-// Input'un id/name değerleri korunur; mevcut kod .value ile "Team – Sprint 75" metnini okumaya devam eder.
-// Board ve sprint bilgisi için: window.getGithubSelection() -> { board, iterationId, iterationTitle } | null
+// Board formu her açıldığında çağrılır. GitHub yapılandırılmamışsa manuel başlık korunur.
+(() => {
+  let selection = null;
+  window.getGithubSelection = () => selection;
 
-(function () {
-  const script = document.currentScript;
-  const selector = (script && script.dataset.input) || '#boardTitle';
+  window.initGithubBoardSelect = async () => {
+    selection = null;
+    const input = document.getElementById('title');
+    if (!input) return;
+    const area = document.getElementById('githubSelectionArea');
+    const note = document.getElementById('githubSelectionNote');
+    const setNote = message => { if (note) note.textContent = message; };
 
-  function build(input) {
-    const select = document.createElement('select');
-    for (const attr of ['id', 'name', 'class', 'required']) {
-      if (input.hasAttribute(attr)) select.setAttribute(attr, input.getAttribute(attr));
-    }
-    select.innerHTML = '<option value="">Yükleniyor...</option>';
-    input.replaceWith(select);
-    return select;
-  }
-
-  function fallback(select, input, message) {
-    // GitHub'a ulaşılamazsa eski textbox'a geri dön
-    console.warn('[github-board-select]', message);
-    input.placeholder = 'GitHub bağlantısı yok, başlığı elle yazın';
-    select.replaceWith(input);
-  }
-
-  async function init() {
-    const input = document.querySelector(selector);
-    if (!input) return console.warn('[github-board-select] input bulunamadı:', selector);
-    const original = input.cloneNode(true);
-    const select = build(input);
+    const load = async () => {
+      const response = await fetch('/api/github/board-sprints', { credentials: 'same-origin' });
+      if (response.status === 401) return 'unauthorized';
+      if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'GitHub bağlantısı kurulamadı.');
+      const groups = await response.json();
+      const select = document.createElement('select');
+      select.id = 'title';
+      select.className = input.className;
+      select.required = true;
+      select.appendChild(new Option('Board ve sprint seçin...', ''));
+      for (const group of groups) {
+        const optgroup = document.createElement('optgroup');
+        optgroup.label = group.board;
+        for (const sprint of group.sprints) {
+          const option = new Option(`${sprint.title}${sprint.state === 'current' ? ' (aktif)' : ''}`, `${group.board} – ${sprint.title}`);
+          option.dataset.board = group.board;
+          option.dataset.iterationId = sprint.id;
+          optgroup.appendChild(option);
+        }
+        select.appendChild(optgroup);
+      }
+      select.onchange = () => {
+        const selected = select.selectedOptions[0];
+        selection = selected?.dataset.iterationId
+          ? { board: selected.dataset.board, iterationId: selected.dataset.iterationId }
+          : null;
+      };
+      if (input.isConnected) input.replaceWith(select);
+      area.replaceChildren();
+      setNote(groups.length ? 'GitHub Project içindeki mevcut sprintlerden seçim yapın.' : 'Seçilebilecek sprint bulunamadı.');
+      return 'ready';
+    };
 
     try {
-      const res = await fetch('/api/github/board-sprints');
-      if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.status);
-      const groups = await res.json();
-
-      select.innerHTML = '<option value="">Board ve sprint seçin</option>';
-      for (const g of groups) {
-        const og = document.createElement('optgroup');
-        og.label = g.board;
-        for (const s of g.sprints) {
-          const opt = document.createElement('option');
-          opt.value = `${g.board} – ${s.title}`;
-          opt.textContent = `${s.title}${s.state === 'current' ? ' (aktif)' : ''}`;
-          opt.dataset.board = g.board;
-          opt.dataset.iterationId = s.id;
-          opt.dataset.iterationTitle = s.title;
-          og.appendChild(opt);
-        }
-        select.appendChild(og);
+      const availability = await fetch('/api/github/availability').then(res => res.json());
+      if (!availability.enabled) {
+        setNote('GitHub bağlantısı henüz ayarlanmadı. Board başlığını elle yazabilirsiniz.');
+        return;
       }
-    } catch (e) {
-      fallback(select, original, e.message || e);
+      input.disabled = true;
+      setNote('GitHub sprintleri yükleniyor...');
+      if (await load() === 'ready') return;
+
+      setNote('GitHub Project erişim anahtarını girin.');
+      const access = document.createElement('input');
+      access.type = 'password';
+      access.className = 'modern-input';
+      access.placeholder = 'Erişim anahtarı';
+      access.autocomplete = 'off';
+      const button = document.createElement('button');
+      button.className = 'secondary-button';
+      button.textContent = 'Bağlan';
+      button.onclick = async () => {
+        button.disabled = true;
+        try {
+          const response = await fetch('/api/github/access', {
+            method: 'POST', credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ access_key: access.value })
+          });
+          access.value = '';
+          if (!response.ok) throw new Error('Erişim anahtarı kabul edilmedi.');
+          await load();
+        } catch (error) { setNote(error.message); }
+        finally { button.disabled = false; }
+      };
+      area.append(access, button);
+    } catch (error) {
+      setNote(error.message);
     }
-  }
-
-  window.getGithubSelection = function () {
-    const el = document.querySelector(selector);
-    if (!el || el.tagName !== 'SELECT') return null;
-    const opt = el.selectedOptions[0];
-    if (!opt || !opt.dataset.iterationId) return null;
-    return { board: opt.dataset.board, iterationId: opt.dataset.iterationId, iterationTitle: opt.dataset.iterationTitle };
   };
-
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init);
-  else init();
 })();

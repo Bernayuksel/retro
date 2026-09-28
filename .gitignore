@@ -3,3 +3,5 @@ server/data/
 server/reports/
 .env
 server/.env
+.env.local
+server/.env.local

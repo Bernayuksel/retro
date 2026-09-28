@@ -1,7 +1,8 @@
 // GitHub Project (v2) entegrasyonu - salt okunur
 // Gerekli ortam değişkenleri: .env.example dosyasına bakın.
 
-const API = 'https://api.github.com/graphql';
+const API = process.env.NODE_ENV === 'test' && process.env.GITHUB_API_URL
+  ? process.env.GITHUB_API_URL : 'https://api.github.com/graphql';
 const CACHE_MS = 5 * 60 * 1000;
 
 const cfg = () => ({
@@ -222,7 +223,9 @@ function summarize(items) {
 async function getSprintSummary(board, iterationId) {
   if (!board || !iterationId) throw new Error('board ve iterationId zorunlu');
   const meta = await getProjectMeta();
+  if (!meta.boards.includes(board)) throw new Error('Geçersiz board seçimi');
   const sprint = meta.sprints.find(s => s.id === iterationId);
+  if (!sprint || sprint.state === 'upcoming') throw new Error('Geçersiz sprint seçimi');
   const items = (await getAllItems()).filter(i => i.board === board && i.iterationId === iterationId);
   return {
     source: 'github',
@@ -230,10 +233,31 @@ async function getSprintSummary(board, iterationId) {
     board,
     sprint: sprint || { id: iterationId },
     generatedAt: new Date().toISOString(),
+    members: [...new Set(items.flatMap(i => i.assignees))].sort(),
     ...summarize(items),
+  };
+}
+
+function toDashboard(summary) {
+  const colors = ['#635bff', '#ef6a67', '#30a46c', '#4b9ee5', '#e7a441'];
+  return {
+    isDemo: false,
+    name: `${summary.board} – ${summary.sprint.title}`,
+    dateRange: `${summary.sprint.startDate} – ${summary.sprint.endDate}`,
+    totalItems: summary.total,
+    completedItems: summary.done,
+    carriedItems: summary.carriedOver,
+    plannedPoints: summary.plannedPoints,
+    completedPoints: summary.donePoints,
+    itemTypes: Object.entries(summary.byType).map(([label, value], index) => ({
+      label, value: value.done, color: colors[index % colors.length]
+    })),
+    contributors: summary.byPerson.map(person => ({
+      name: person.name, completed: person.items, points: person.points
+    }))
   };
 }
 
 function clearCache() { cache.clear(); }
 
-module.exports = { getBoardSprints, getSprintSummary, getProjectMeta, summarize, normalizeItem, clearCache };
+module.exports = { getBoardSprints, getSprintSummary, getProjectMeta, summarize, normalizeItem, toDashboard, clearCache };

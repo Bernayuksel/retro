@@ -2,18 +2,27 @@
 const express = require('express');
 const http = require('http');
 const path = require('path');
+const fs = require('fs');
 const { WebSocketServer } = require('ws');
 const { v4: uuidv4 } = require('uuid');
 const { randomBytes } = require('crypto');
 
+const localEnv = path.join(__dirname, '..', '.env.local');
+if (fs.existsSync(localEnv)) process.loadEnvFile(localEnv);
+
 const { db, initialize } = require('./db');
-const fs = require('fs');
 const { generateReport, buildPdf } = require('./report');
 const { generateAiReport, buildAiPdf } = require('./ai-report');
+const github = require('../github');
+const githubAccess = require('../githubRoutes');
 
 const app = express();
+if (githubAccess.enabled() && (process.env.GITHUB_PROJECT_ACCESS_KEY || '').length < 24) {
+  throw new Error('GitHub Project için en az 24 karakterlik GITHUB_PROJECT_ACCESS_KEY gerekli.');
+}
 
 app.use(express.json());
+app.use('/api/github', githubAccess.router);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const server = http.createServer(app);
@@ -79,14 +88,16 @@ app.post('/api/boards', async (req, res) => {
   const {
     title,
     columns,
-    timer_minutes
+    timer_minutes,
+    github_board,
+    github_iteration_id
   } = req.body;
   const weekly_questions = Array.isArray(req.body.weekly_questions)
     ? req.body.weekly_questions
     : typeof req.body.weekly_question === 'string' ? [req.body.weekly_question] : [];
 
   if (
-    !title ||
+    (!githubAccess.enabled() && !title) ||
     !Array.isArray(columns) ||
     columns.length === 0 ||
     columns.length > 5 ||
@@ -98,6 +109,22 @@ app.post('/api/boards', async (req, res) => {
     return res.status(400).json({
       error: 'Başlık, kolon, haftanın sorusu ve 1-480 dakika toplantı süresi gerekli.'
     });
+  }
+
+  let selectedTitle = title;
+  let sprintDashboard = null;
+  let githubMembers = null;
+  if (githubAccess.enabled()) {
+    if (!githubAccess.hasAccess(req)) return res.status(401).json({ error: 'GitHub Project erişimi gerekli.' });
+    try {
+      const summary = await github.getSprintSummary(github_board, github_iteration_id);
+      selectedTitle = `${summary.board} – ${summary.sprint.title}`;
+      sprintDashboard = JSON.stringify(github.toDashboard(summary));
+      githubMembers = JSON.stringify(summary.members);
+    } catch (error) {
+      console.error('[github board create]', error);
+      return res.status(502).json({ error: 'Seçilen sprint GitHub’dan alınamadı. Bağlantıyı kontrol edin.' });
+    }
   }
 
   const id = uuidv4();
@@ -118,23 +145,31 @@ app.post('/api/boards', async (req, res) => {
       weekly_questions,
       timer_minutes,
       timer_remaining_ms,
+      sprint_dashboard,
+      github_members,
+      github_board,
+      github_iteration_id,
       created_at
     )
-    VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, 'open', ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
-    title,
+    selectedTitle,
     JSON.stringify(cols),
     weekly_questions[0].trim(),
     JSON.stringify(weekly_questions.map(q => q.trim())),
     Number(timer_minutes),
     Number(timer_minutes) * 60000,
+    sprintDashboard,
+    githubMembers,
+    githubAccess.enabled() ? github_board : null,
+    githubAccess.enabled() ? github_iteration_id : null,
     Date.now()
   );
 
   res.json({
     id,
-    title,
+    title: selectedTitle,
     columns: cols
   });
 });
@@ -268,6 +303,8 @@ app.get('/api/boards/:id', async (req, res) => {
     title: board.title,
 
     status: board.status,
+    sprint_dashboard: board.sprint_dashboard ? JSON.parse(board.sprint_dashboard) : null,
+    github_members: board.github_members ? JSON.parse(board.github_members) : [],
 
     weekly_question: (() => {
       const questions = JSON.parse(board.weekly_questions || '[]');
