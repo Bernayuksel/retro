@@ -2,7 +2,7 @@ const PDFDocument = require('pdfkit');
 const fs = require('fs');
 const path = require('path');
 const { v4: uuidv4 } = require('uuid');
-const db = require('./db');
+const { db } = require('./db');
 
 const REPORTS_DIR = path.join(__dirname, '..', 'reports');
 if (!fs.existsSync(REPORTS_DIR)) fs.mkdirSync(REPORTS_DIR, { recursive: true });
@@ -64,18 +64,18 @@ function getSprintDashboard(board) {
   };
 }
 
-function generateReport(boardId) {
-  const board = db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId);
+async function generateReport(boardId) {
+  const board = await db.prepare('SELECT * FROM boards WHERE id = ?').get(boardId);
   if (!board) throw new Error('Board bulunamadı');
 
   const columns = JSON.parse(board.columns);
-  const participants = db.prepare('SELECT name, joined_at FROM participants WHERE board_id = ?').all(boardId);
-  const cards = db.prepare(`
+  const participants = await db.prepare('SELECT name, joined_at FROM participants WHERE board_id = ?').all(boardId);
+  const cards = await db.prepare(`
     SELECT c.*, (SELECT COUNT(*) FROM votes v WHERE v.card_id = c.id) AS vote_count
     FROM cards c WHERE c.board_id = ? ORDER BY vote_count DESC
   `).all(boardId);
-  const actions = db.prepare('SELECT * FROM actions WHERE board_id = ? ORDER BY created_at ASC').all(boardId);
-  const comments = db.prepare(`
+  const actions = await db.prepare('SELECT * FROM actions WHERE board_id = ? ORDER BY created_at ASC').all(boardId);
+  const comments = await db.prepare(`
     SELECT cm.card_id, cm.content, cm.parent_id
     FROM comments cm
     JOIN cards c ON c.id = cm.card_id
@@ -119,10 +119,10 @@ function generateReport(boardId) {
 
   const token = uuidv4();
   const pdfPath = path.join(REPORTS_DIR, `${token}.pdf`);
-  buildPdf(pdfPath, snapshot);
+  await buildPdf(pdfPath, snapshot);
 
   const reportId = uuidv4();
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO reports (id, board_id, token, snapshot, pdf_path, created_at)
     VALUES (?, ?, ?, ?, ?, ?)
   `).run(reportId, boardId, token, JSON.stringify(snapshot), pdfPath, Date.now());
@@ -137,7 +137,8 @@ function buildPdf(filePath, snapshot) {
     bufferPages: true,
     info: { Title: snapshot.board.title || 'Retro Raporu', Language: 'tr-TR' }
   });
-  doc.pipe(fs.createWriteStream(filePath));
+  const stream = fs.createWriteStream(filePath);
+  doc.pipe(stream);
 
   // PDFKit'in standart Helvetica fontu Türkçe karakterleri içermez.
   // Unicode destekli bir TTF varsa onu kullanıyoruz.
@@ -387,6 +388,11 @@ function buildPdf(filePath, snapshot) {
   }
 
   doc.end();
+  return new Promise((resolve, reject) => {
+    stream.on('finish', resolve);
+    stream.on('error', reject);
+    doc.on('error', reject);
+  });
 }
 
-module.exports = { generateReport };
+module.exports = { generateReport, buildPdf };
