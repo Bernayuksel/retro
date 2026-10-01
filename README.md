@@ -110,3 +110,8 @@ Board oluşturma sırasında düğme bekleme durumuna geçer ve tekrar tıklamay
 Eski SP özeti olan GitHub bağlantılı board, Project erişim çereziyle açıldığında
 gerçek saat tahminleriyle bir kez yenilenir. Önceden oluşturulmuş raporlar geçmiş
 çıktıları korur; eski SP değeri saat olarak yeniden etiketlenmez.
+
+Saat tahminleri hem Project alanlarından hem issue üzerindeki organizasyon alanlarından
+okunur. Issue üzerindeki değer aynı isimli Project değerinden önceliklidir.
+Eksik tahminler gerçek sıfırdan ayrılır ve tahmin kapsama sayısı ekranda belirtilir.
+Önceki okuma sürümüyle kaydedilmiş saat özetleri de yetkili açılışta yenilenir.

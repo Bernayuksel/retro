@@ -233,7 +233,7 @@ function buildAiPdf(filePath, snapshot, summary, model) {
     const items = [
       ['Tamamlanma', `%${rate}`],
       ['Tamamlanan', dashboard.completedItems],
-      ['Tamamlanan efor', dashboard.effortUnit === 'saat' ? `${dashboard.completedHours} saat` : `${dashboard.completedPoints} SP`],
+      ['Tamamlanan efor', dashboard.effortUnit === 'saat' ? (dashboard.estimatedItems > 0 ? `${dashboard.completedHours} saat` : 'Tahmin bulunamadı') : `${dashboard.completedPoints} SP`],
       ['Devreden', dashboard.carriedItems]
     ];
     const gap = 9;

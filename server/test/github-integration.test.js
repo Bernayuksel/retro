@@ -22,17 +22,16 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
       ? { organization: { projectV2: {
           id: 'project-id', title: 'Team Project', fields: { nodes: [
             { name: 'Board', options: [{ name: 'Team' }, { name: 'Mobile' }, { name: 'Other' }] },
-            { name: 'Original Estimate', dataType: 'NUMBER' },
             { name: 'Sprint', configuration: { iterations: [{ id: 'sprint-id', title: 'Sprint 1', startDate: start, duration: 14 }], completedIterations: [] } }
           ] }
         } } }
       : { node: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
-          { type: 'ISSUE', content: { number: 1, title: 'Test item', state: 'OPEN', issueType: { name: 'Task' }, labels: { nodes: [] }, assignees: { nodes: [{ login: 'teammate', name: 'Teammate' }] } },
+          { type: 'ISSUE', content: { number: 1, title: 'Test item', state: 'OPEN', issueType: { name: 'Task' }, labels: { nodes: [] }, assignees: { nodes: [{ login: 'teammate', name: 'Teammate' }] }, issueFieldValues: { nodes: [{ number: 3.5, field: { name: 'Original Estimate' } }] } },
             fieldValues: { nodes: [
               { name: 'Team', field: { name: 'Board' } },
               { iterationId: 'sprint-id', title: 'Sprint 1', field: { name: 'Sprint' } },
               { name: 'Done', field: { name: 'Status' } },
-              { number: 3.5, field: { name: 'Original Estimate' } },
+              { number: 99, field: { name: 'Original Estimate' } },
               { number: 99, field: { name: 'Story Point' } }
             ] } },
           { type: 'ISSUE', content: { number: 2, title: 'Mobile item', state: 'OPEN', assignees: { nodes: [{ login: 'mobile', name: 'Mobile teammate' }] } },
@@ -40,7 +39,7 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
               { name: 'Mobile', field: { name: 'Board' } },
               { iterationId: 'sprint-id', field: { name: 'Sprint' } },
               { name: 'In progress', field: { name: 'Status' } },
-              { text: '2,5h', field: { name: 'Original Estimate' } }
+              { issueFieldValue: { text: '2,5h' }, field: { name: 'Original Estimate' } }
             ] } },
           { type: 'ISSUE', content: { title: 'Excluded board', state: 'CLOSED' },
             fieldValues: { nodes: [
@@ -106,6 +105,9 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
     assert.equal(board.sprint_dashboard.totalItems, 2);
     assert.equal(board.sprint_dashboard.effortUnit, 'saat');
     assert.equal(board.sprint_dashboard.plannedHours, 6);
+    assert.equal(board.sprint_dashboard.estimatedItems, 2);
+    assert.equal(board.sprint_dashboard.missingEstimateItems, 0);
+    assert.equal(board.sprint_dashboard.estimateSchemaVersion, 2);
     assert.equal(board.sprint_dashboard.completedItems, 1);
     assert.equal(board.sprint_dashboard.completedHours, 3.5);
     assert.deepEqual(board.github_members, ['Mobile teammate', 'Teammate']);
@@ -118,7 +120,7 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
     const legacyDb = createClient({ url: `file:${path.join(dataDir, 'retro.db')}` });
     try {
       await legacyDb.execute({ sql: 'UPDATE boards SET sprint_dashboard = ?, github_board = ? WHERE id = ?',
-        args: [JSON.stringify({ ...board.sprint_dashboard, effortUnit: undefined, completedHours: undefined, plannedHours: undefined, plannedPoints: 99, completedPoints: 99 }), 'Team', created.id] });
+        args: [JSON.stringify({ ...board.sprint_dashboard, estimateSchemaVersion: undefined, effortUnit: undefined, completedHours: undefined, plannedHours: undefined, plannedPoints: 99, completedPoints: 99 }), 'Team', created.id] });
       const anonymous = await fetch(base + '/api/boards/' + created.id).then(res => res.json());
       assert.equal(anonymous.sprint_dashboard.completedPoints, 99, 'unauthorized reads cannot migrate');
       const migrated = await fetch(base + '/api/boards/' + created.id, { headers: { Cookie: cookie } }).then(res => res.json());
@@ -145,4 +147,20 @@ test('hour estimates parse numeric and hour text values and ignore SP', () => {
   assert.throws(() => estimateHours({ text: '1d' }));
   const item = normalizeItem({ content: { title: 'Missing estimate' }, fieldValues: { nodes: [{ number: 8, field: { name: 'Story Point' } }] } });
   assert.equal(item.hours, 0);
+});
+
+test('issue estimates distinguish missing values from genuine zero and support decimals', () => {
+  const { normalizeItem, summarize, toDashboard } = require('../github');
+  const missing = normalizeItem({ content: { title: 'Missing' }, fieldValues: { nodes: [] } });
+  const zero = normalizeItem({ content: { title: 'Zero', issueFieldValues: { nodes: [{ number: 0, field: { name: 'Original Estimate' } }] } }, fieldValues: { nodes: [] } });
+  const estimate = normalizeItem({ content: { title: 'Estimate', state: 'CLOSED', issueFieldValues: { nodes: [{ number: 2, field: { name: 'Original Estimate' } }] } }, fieldValues: { nodes: [] } });
+  assert.equal(missing.hasEstimate, false);
+  assert.equal(zero.hasEstimate, true);
+  assert.equal(estimate.hours, 2);
+  const result = summarize([missing, zero, estimate]);
+  assert.equal(result.estimatedItems, 2);
+  assert.equal(result.missingEstimateItems, 1);
+  assert.equal(result.doneHours, 2);
+  const dashboard = toDashboard({ ...result, board: 'Team', boards: ['Team'], sprint: { title: 'Sprint' } });
+  assert.equal(dashboard.estimateSchemaVersion, 2);
 });

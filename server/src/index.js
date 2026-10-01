@@ -201,7 +201,7 @@ app.get('/api/boards/:id', async (req, res) => {
   // Upgrade legacy SP snapshots from real estimates, never by relabelling points.
   let githubSyncError = null;
   const dashboard = board.sprint_dashboard ? JSON.parse(board.sprint_dashboard) : null;
-  if (dashboard && dashboard.effortUnit !== 'saat' && board.github_board && board.github_iteration_id && githubAccess.hasAccess(req)) {
+  if (dashboard && dashboard.estimateSchemaVersion !== 2 && board.github_board && board.github_iteration_id && githubAccess.hasAccess(req)) {
     try {
       let boards;
       try { boards = JSON.parse(board.github_board); } catch { boards = board.github_board; }

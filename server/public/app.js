@@ -87,6 +87,7 @@ function renderSprintDashboard(board) {
     : 0;
   const hourBased = dashboard.effortUnit === 'saat';
   const unit = hourBased ? 'saat' : 'SP';
+  const effortAvailable = !hourBased || dashboard.estimatedItems > 0;
   const plannedEffort = hourBased ? dashboard.plannedHours : dashboard.plannedPoints;
   const completedEffort = hourBased ? dashboard.completedHours : dashboard.completedPoints;
   const pointRate = plannedEffort
@@ -115,6 +116,7 @@ function renderSprintDashboard(board) {
       </div>
 
       ${!hourBased ? '<p class="muted">Bu boardda eski SP özeti kayıtlı. GitHub erişim anahtarınızla bağlanıp boardu yenilediğinizde saat özeti alınır.</p>' : ''}
+      ${hourBased && dashboard.missingEstimateItems ? `<p class="muted">${dashboard.estimatedItems} / ${dashboard.totalItems} maddede saat tahmini bulundu. ${dashboard.missingEstimateItems} maddede Original Estimate boş veya erişilemiyor.</p>` : ''}
       ${board.github_sync_error ? `<p class="muted">Saat özeti yenilenemedi: ${escapeHtml(board.github_sync_error)}</p>` : ''}
       <div class="sprint-stat-grid">
         <article class="sprint-stat-card">
@@ -124,8 +126,8 @@ function renderSprintDashboard(board) {
         </article>
         <article class="sprint-stat-card">
           <span>Tamamlanan efor</span>
-          <strong>${completedEffort} ${unit}</strong>
-          <small>Planlanan ${plannedEffort} ${unit} · %${pointRate}</small>
+          <strong>${effortAvailable ? `${completedEffort} ${unit}` : 'Tahmin bulunamadı'}</strong>
+          <small>${effortAvailable ? `Planlanan ${plannedEffort} ${unit} · %${pointRate}` : 'Original Estimate değerleri okunamadı'}</small>
         </article>
         <article class="sprint-stat-card">
           <span>Tamamlanan madde</span>
@@ -171,7 +173,7 @@ function renderSprintDashboard(board) {
                 <span class="contributor-avatar">${initials(person.name)}</span>
                 <span class="contributor-name">${escapeHtml(person.name)}</span>
                 <span><strong>${person.completed}</strong> madde</span>
-                <span><strong>${hourBased ? person.hours : person.points}</strong> ${unit}</span>
+                <span><strong>${effortAvailable ? (hourBased ? person.hours : person.points) : '—'}</strong> ${unit}</span>
               </div>
             `).join('')}
           </div>

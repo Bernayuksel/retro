@@ -130,17 +130,30 @@ query($id: ID!, $cursor: String) {
             ... on Issue {
               number title url state
               issueType { name }
+              issueFieldValues(first: 100) {
+                nodes {
+                  ... on IssueFieldNumberValue { number: value field { ... on IssueFieldCommon { name } } }
+                  ... on IssueFieldTextValue { text: value field { ... on IssueFieldCommon { name } } }
+                }
+              }
               labels(first: 20) { nodes { name } }
               assignees(first: 10) { nodes { login name } }
             }
             ... on DraftIssue { title assignees(first: 10) { nodes { login name } } }
           }
-          fieldValues(first: 30) {
+          fieldValues(first: 100) {
             nodes {
               ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
               ... on ProjectV2ItemFieldIterationValue { iterationId title field { ... on ProjectV2FieldCommon { name } } }
               ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
               ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
+              ... on ProjectV2ItemIssueFieldValue {
+                field { ... on ProjectV2FieldCommon { name } }
+                issueFieldValue {
+                  ... on IssueFieldNumberValue { number: value }
+                  ... on IssueFieldTextValue { text: value }
+                }
+              }
             }
           }
         }
@@ -190,8 +203,14 @@ function normalizeItem(node) {
   const f = {};
   for (const v of node.fieldValues.nodes) {
     if (!v || !v.field) continue;
-    f[v.field.name] = v;
+    f[v.field.name] = v.issueFieldValue || v;
   }
+  // Issue-level fields are authoritative when the same name appears in a Project.
+  for (const value of node.content.issueFieldValues?.nodes || []) {
+    if (value?.field?.name && (value.number != null || value.text?.trim())) f[value.field.name] = value;
+  }
+  const estimate = f[Object.keys(f).reverse().find(name => name.trim().toLowerCase() === c.estimateField.trim().toLowerCase())];
+  const hasEstimate = estimate?.number != null || Boolean(estimate?.text?.trim());
   const status = f[c.statusField] ? f[c.statusField].name : null;
   const content = node.content;
   return {
@@ -203,7 +222,8 @@ function normalizeItem(node) {
     status,
     done: (status && c.doneStatuses.includes(status.toLowerCase())) || content.state === 'CLOSED',
     type: node.type === 'DRAFT_ISSUE' ? 'Taslak' : detectType(content),
-    hours: estimateHours(f[Object.keys(f).find(name => name.toLowerCase() === c.estimateField.toLowerCase())]),
+    hours: estimateHours(estimate),
+    hasEstimate,
     assignees: ((content.assignees && content.assignees.nodes) || []).map(a => a.name || a.login),
   };
 }
@@ -231,6 +251,8 @@ function summarize(items) {
     done: done.length,
     carriedOver: items.length - done.length,
     completionPct: items.length ? Math.round((done.length / items.length) * 100) : 0,
+    estimatedItems: items.filter(i => i.hasEstimate).length,
+    missingEstimateItems: items.filter(i => !i.hasEstimate).length,
     plannedHours: sum(items),
     doneHours: sum(done),
     byType,
@@ -245,7 +267,7 @@ async function getSprintSummary(board, iterationId) {
   const meta = await getProjectMeta();
   if (boards.some(b => !meta.boards.includes(b))) throw new Error('Geçersiz board seçimi');
   const estimateField = meta.fields.find(f => f.name.toLowerCase() === cfg().estimateField.toLowerCase());
-  if (!estimateField || !['NUMBER', 'TEXT'].includes(estimateField.dataType)) {
+  if (estimateField && !['NUMBER', 'TEXT'].includes(estimateField.dataType)) {
     throw new Error(`Saat tahmini alanı bulunamadı veya desteklenmiyor: ${cfg().estimateField}. GITHUB_ESTIMATE_FIELD ayarını kontrol edin.`);
   }
   const sprint = meta.sprints.find(s => s.id === iterationId);
@@ -275,6 +297,9 @@ function toDashboard(summary) {
     carriedItems: summary.carriedOver,
     boards: summary.boards,
     effortUnit: 'saat',
+    estimateSchemaVersion: 2,
+    estimatedItems: summary.estimatedItems,
+    missingEstimateItems: summary.missingEstimateItems,
     plannedHours: summary.plannedHours,
     completedHours: summary.doneHours,
     itemTypes: Object.entries(summary.byType).map(([label, value], index) => ({
