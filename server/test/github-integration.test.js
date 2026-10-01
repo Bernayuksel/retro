@@ -22,7 +22,7 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
       ? { organization: { projectV2: {
           id: 'project-id', title: 'Team Project', fields: { nodes: [
             { name: 'Board', options: [{ name: 'Team' }, { name: 'Mobile' }, { name: 'Other' }] },
-            { name: 'Sprint', configuration: { iterations: [{ id: 'sprint-id', title: 'Sprint 1', startDate: start, duration: 14 }], completedIterations: [] } }
+            { name: 'Sprint', configuration: { iterations: [{ id: 'sprint-id', title: 'Sprint 1', startDate: start, duration: 14 }], completedIterations: [{ id: 'other-sprint', title: 'Sprint 0', startDate: '2026-01-01', duration: 14 }] } }
           ] }
         } } }
       : { node: { items: { pageInfo: { hasNextPage: false, endCursor: null }, nodes: [
@@ -116,6 +116,26 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
     assert.equal(single.total, 1);
     assert.equal(single.doneHours, 3.5);
     assert.equal(itemRequests, 1, 'board creation reuses preloaded project data');
+    const multiResponse = await fetch(base + '/api/boards', {
+      method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
+      body: JSON.stringify({ columns: ['Good'], weekly_questions: ['Question?'], timer_minutes: 15,
+        github_boards: ['Team', 'Mobile'], github_iteration_ids: ['sprint-id', 'other-sprint', 'sprint-id'] })
+    });
+    assert.equal(multiResponse.status, 200);
+    const multiCreated = await multiResponse.json();
+    const multiBoard = await fetch(base + '/api/boards/' + multiCreated.id).then(res => res.json());
+    assert.equal(multiBoard.title, 'Team + Mobile – Sprint 1 + Sprint 0');
+    assert.equal(multiBoard.sprint_dashboard.totalItems, 3);
+    assert.equal(multiBoard.sprint_dashboard.completedItems, 2);
+    assert.equal(multiBoard.sprint_dashboard.plannedHours, 106);
+    assert.equal(multiBoard.sprint_dashboard.completedHours, 103.5);
+    assert.equal(multiBoard.sprint_dashboard.sprints.length, 2);
+    const preview = await fetch(base + '/api/github/sprint-summary?board=Team&board=Mobile&iterationId=sprint-id&iterationId=other-sprint', { headers: { Cookie: cookie } }).then(res => res.json());
+    assert.equal(preview.total, 3);
+    assert.equal(preview.doneHours, 103.5);
+    const invalid = await fetch(base + '/api/github/sprint-summary?board=Team&iterationId=missing-sprint', { headers: { Cookie: cookie } });
+    assert.equal(invalid.status, 502);
+
     const { createClient } = require('@libsql/client');
     const legacyDb = createClient({ url: `file:${path.join(dataDir, 'retro.db')}` });
     try {

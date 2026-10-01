@@ -91,6 +91,7 @@ app.post('/api/boards', async (req, res) => {
     timer_minutes,
     github_board,
     github_boards,
+    github_iteration_ids,
     github_iteration_id
   } = req.body;
   const weekly_questions = Array.isArray(req.body.weekly_questions)
@@ -116,14 +117,16 @@ app.post('/api/boards', async (req, res) => {
   let sprintDashboard = null;
   let githubMembers = null;
   let selectedBoards = null;
+  let selectedSprints = null;
   if (githubAccess.enabled()) {
     if (!githubAccess.hasAccess(req)) return res.status(401).json({ error: 'GitHub Project erişimi gerekli.' });
     try {
-      const summary = await github.getSprintSummary(github_boards ?? github_board, github_iteration_id);
+      const summary = await github.getSprintSummary(github_boards ?? github_board, github_iteration_ids ?? github_iteration_id);
       selectedTitle = `${summary.board} – ${summary.sprint.title}`;
       sprintDashboard = JSON.stringify(github.toDashboard(summary));
       githubMembers = JSON.stringify(summary.members);
       selectedBoards = JSON.stringify(summary.boards);
+      selectedSprints = JSON.stringify(summary.sprints.map(s => s.id));
     } catch (error) {
       console.error('[github board create]', error);
       return res.status(502).json({ error: error.message || 'Seçilen sprint GitHub’dan alınamadı. Bağlantıyı kontrol edin.' });
@@ -166,7 +169,7 @@ app.post('/api/boards', async (req, res) => {
     sprintDashboard,
     githubMembers,
     selectedBoards,
-    githubAccess.enabled() ? github_iteration_id : null,
+    selectedSprints,
     Date.now()
   );
 
@@ -205,7 +208,9 @@ app.get('/api/boards/:id', async (req, res) => {
     try {
       let boards;
       try { boards = JSON.parse(board.github_board); } catch { boards = board.github_board; }
-      const summary = await github.getSprintSummary(boards, board.github_iteration_id);
+      let sprints;
+      try { sprints = JSON.parse(board.github_iteration_id); } catch { sprints = board.github_iteration_id; }
+      const summary = await github.getSprintSummary(boards, sprints);
       board.sprint_dashboard = JSON.stringify(github.toDashboard(summary));
       board.github_members = JSON.stringify(summary.members);
       await db.prepare('UPDATE boards SET sprint_dashboard = ?, github_members = ? WHERE id = ?')
@@ -1066,6 +1071,7 @@ wss.on('connection', ws => {
         UPDATE boards SET status = 'open'
         WHERE id = ? AND status = 'revealed'
       `).run(currentBoardId);
+      broadcast(currentBoardId, { type: 'hidden' });
 
       return;
     }

@@ -86,6 +86,16 @@ test('board, admin identity and report survive a server restart', { timeout: 300
     const moved = waitFor(first.ws, 'card_moved');
     colleague.ws.send(JSON.stringify({ type: 'card_move', card_id: addedCard.id, column_id: board.columns[1].id }));
     await moved;
+    for (let cycle = 0; cycle < 2; cycle++) {
+      const revealed = waitFor(colleague.ws, 'revealed');
+      first.ws.send(JSON.stringify({ type: 'reveal' }));
+      await revealed;
+      const hiddenEverywhere = Promise.all([first.ws, second.ws, colleague.ws].map(socket => waitFor(socket, 'hidden')));
+      first.ws.send(JSON.stringify({ type: 'hide' }));
+      await hiddenEverywhere;
+      const hiddenBoard = await fetch(`${base}/api/boards/${board.id}`).then(res => res.json());
+      assert.equal(hiddenBoard.status, 'open', 'hide applies without adding another card or comment');
+    }
     first.ws.close();
     second.ws.close();
     colleague.ws.close();

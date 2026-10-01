@@ -559,7 +559,7 @@ function renderHome() {
           .value
           .trim();
       const githubSelection = window.getGithubSelection?.();
-      if (document.getElementById('title').tagName === 'SELECT' && (!githubSelection || !githubSelection.boards.length)) {
+      if (document.getElementById('title').dataset.githubRequired && (!githubSelection || !githubSelection.boards.length || !githubSelection.iterationIds.length)) {
         return alert('Önce bir GitHub board ve sprint seçin.');
       }
 
@@ -593,7 +593,7 @@ function renderHome() {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ title, columns: cols, weekly_questions: weeklyQuestions,
             timer_minutes: timerMinutes, github_boards: githubSelection?.boards,
-            github_iteration_id: githubSelection?.iterationId })
+            github_iteration_ids: githubSelection?.iterationIds })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Board oluşturulamadı.');

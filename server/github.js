@@ -263,23 +263,31 @@ function summarize(items) {
 
 async function getSprintSummary(board, iterationId) {
   const boards = [...new Set(Array.isArray(board) ? board : [board])];
-  if (!boards.length || boards.some(b => typeof b !== 'string' || !b) || !iterationId) throw new Error('En az bir board ve sprint seçin.');
+  const iterationIds = [...new Set(Array.isArray(iterationId) ? iterationId : [iterationId])];
+  if (!boards.length || boards.some(b => typeof b !== 'string' || !b) || !iterationIds.length || iterationIds.some(id => typeof id !== 'string' || !id)) throw new Error('En az bir board ve sprint seçin.');
   const meta = await getProjectMeta();
   if (boards.some(b => !meta.boards.includes(b))) throw new Error('Geçersiz board seçimi');
   const estimateField = meta.fields.find(f => f.name.toLowerCase() === cfg().estimateField.toLowerCase());
   if (estimateField && !['NUMBER', 'TEXT'].includes(estimateField.dataType)) {
     throw new Error(`Saat tahmini alanı bulunamadı veya desteklenmiyor: ${cfg().estimateField}. GITHUB_ESTIMATE_FIELD ayarını kontrol edin.`);
   }
-  const sprint = meta.sprints.find(s => s.id === iterationId);
-  if (!sprint || sprint.state === 'upcoming') throw new Error('Geçersiz sprint seçimi');
-  const items = (await getAllItems()).filter(i => boards.includes(i.board) && i.iterationId === iterationId);
+  const sprints = iterationIds.map(id => meta.sprints.find(s => s.id === id));
+  if (sprints.some(s => !s || s.state === 'upcoming')) throw new Error('Geçersiz sprint seçimi');
+  const sprint = {
+    id: sprints.length === 1 ? sprints[0].id : null,
+    title: sprints.map(s => s.title).join(' + '),
+    startDate: sprints.map(s => s.startDate).sort()[0],
+    endDate: sprints.map(s => s.endDate).sort().at(-1)
+  };
+  const items = (await getAllItems()).filter(i => boards.includes(i.board) && iterationIds.includes(i.iterationId));
   return {
     source: 'github',
     project: meta.projectTitle,
     board: boards.join(' + '),
     boards,
     effortUnit: 'saat',
-    sprint: sprint || { id: iterationId },
+    sprint,
+    sprints,
     generatedAt: new Date().toISOString(),
     members: [...new Set(items.flatMap(i => i.assignees))].sort(),
     ...summarize(items),
@@ -296,6 +304,7 @@ function toDashboard(summary) {
     completedItems: summary.done,
     carriedItems: summary.carriedOver,
     boards: summary.boards,
+    sprints: summary.sprints,
     effortUnit: 'saat',
     estimateSchemaVersion: 2,
     estimatedItems: summary.estimatedItems,

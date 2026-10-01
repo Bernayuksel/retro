@@ -115,3 +115,8 @@ Saat tahminleri hem Project alanlarından hem issue üzerindeki organizasyon ala
 okunur. Issue üzerindeki değer aynı isimli Project değerinden önceliklidir.
 Eksik tahminler gerçek sıfırdan ayrılır ve tahmin kapsama sayısı ekranda belirtilir.
 Önceki okuma sürümüyle kaydedilmiş saat özetleri de yetkili açılışta yenilenir.
+
+Boardlar ve sprintler ayrı kutucuklarla çoklu seçilebilir. Seçili boardların
+seçili sprintlerdeki işleri tek özette toplanır; aynı sprint tekrar sayılmaz.
+GitHub mevcut sprint alanının güncel değerini okur, sprint geçmişini yeniden oluşturmaz.
+Kartları gizleme değişikliği tüm bağlı katılımcılara anında bildirilir.
