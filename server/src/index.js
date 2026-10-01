@@ -420,7 +420,8 @@ app.get('/api/reports/:token/pdf', async (req, res) => {
       .send('Rapor bulunamadı');
   }
 
-  if (!fs.existsSync(report.pdf_path)) {
+  const rendererModifiedAt = fs.statSync(path.join(__dirname, 'report.js')).mtimeMs;
+  if (!fs.existsSync(report.pdf_path) || fs.statSync(report.pdf_path).mtimeMs < rendererModifiedAt) {
     await buildPdf(report.pdf_path, JSON.parse(report.snapshot));
   }
 

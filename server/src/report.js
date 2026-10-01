@@ -161,7 +161,7 @@ function buildPdf(filePath, snapshot) {
       : { dateStyle: 'long', timeStyle: 'short' }).format(date);
   };
   const ensureSpace = height => {
-    const bottom = doc.page.height - doc.page.margins.bottom;
+    const bottom = doc.page.height - doc.page.margins.bottom - 32;
     if (doc.y + height > bottom) doc.addPage();
   };
   const pageWidth = doc.page.width;
@@ -248,40 +248,70 @@ function buildPdf(filePath, snapshot) {
     statCard(46 + (cardWidth + gap) * 3, cardsY, cardWidth, 'TAMAMLANMAYAN', dashboard.carriedItems, 'açık madde', colors.amberSoft);
     doc.y = cardsY + 82;
 
-    const panelGap = 12;
-    const panelWidth = (contentWidth - panelGap) / 2;
-    const panelY = doc.y;
-    const panelHeight = 118;
-    doc.roundedRect(46, panelY, panelWidth, panelHeight, 12).lineWidth(1).fillAndStroke('#ffffff', colors.border);
-    doc.roundedRect(46 + panelWidth + panelGap, panelY, panelWidth, panelHeight, 12).lineWidth(1).fillAndStroke('#ffffff', colors.border);
-
-    doc.font('Bold').fontSize(10).fillColor(colors.ink).text('İş türü dağılımı', 59, panelY + 13);
-    let typeY = panelY + 34;
+    sectionTitle('İş türü dağılımı');
     const typeTotal = (dashboard.itemTypes || []).reduce((sum, item) => sum + item.value, 0) || 1;
     const typeColors = [colors.purple, colors.red, colors.green, colors.blue];
     (dashboard.itemTypes || []).forEach((item, index) => {
-      doc.font('Regular').fontSize(8).fillColor(colors.ink).text(item.label, 59, typeY, { width: panelWidth - 100 });
-      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(String(item.value), 46 + panelWidth - 43, typeY, { width: 28, align: 'right' });
-      progressBar(59, typeY + 13, panelWidth - 82, item.value / typeTotal, typeColors[index % typeColors.length]);
-      typeY += 25;
+      doc.font('Regular').fontSize(9);
+      const labelHeight = doc.heightOfString(String(item.label), { width: contentWidth - 70 });
+      const rowHeight = Math.max(32, labelHeight + 20);
+      ensureSpace(rowHeight);
+      const y = doc.y;
+      doc.fillColor(colors.ink).text(item.label, 58, y, { width: contentWidth - 70 });
+      doc.font('Bold').fontSize(9).text(String(item.value), 46 + contentWidth - 48, y, { width: 36, align: 'right' });
+      progressBar(58, y + labelHeight + 6, contentWidth - 24, item.value / typeTotal, typeColors[index % typeColors.length]);
+      doc.y = y + rowHeight;
     });
+    doc.y += 10;
 
-    const peopleX = 46 + panelWidth + panelGap + 13;
-    doc.font('Bold').fontSize(10).fillColor(colors.ink).text('Kişi bazında katkı', peopleX, panelY + 13);
-    let peopleY = panelY + 35;
-    (dashboard.contributors || []).slice(0, 4).forEach(person => {
-      doc.circle(peopleX + 9, peopleY + 7, 9).fill(colors.purpleSoft);
+    const contributors = dashboard.contributors || [];
+    const nameX = 84;
+    const countX = 46 + contentWidth - 182;
+    const effortX = 46 + contentWidth - 100;
+    const nameWidth = countX - nameX - 12;
+    const countWidth = 70;
+    const effortWidth = 88;
+    const peopleHeader = continued => {
+      ensureSpace(80);
+      sectionTitle(continued ? 'Kişi bazında katkı (devam)' : 'Kişi bazında katkı', `${contributors.length} kişi - tamamlanan işler`);
+      const y = doc.y;
+      doc.roundedRect(46, y, contentWidth, 24, 6).fill(colors.purpleSoft);
+      doc.font('Bold').fontSize(8).fillColor(colors.purple).text('Kişi', nameX, y + 7, { width: nameWidth });
+      doc.text('Tamamlanan', countX, y + 7, { width: countWidth, align: 'right' });
+      doc.text(`Efor (${unit})`, effortX, y + 7, { width: effortWidth, align: 'right' });
+      doc.y = y + 28;
+    };
+    peopleHeader(false);
+    contributors.forEach((person, index) => {
+      const name = String(person.name || 'Atanmamış');
+      const count = String(person.completed);
+      const effort = String(effortAvailable ? (hourBased ? person.hours : person.points) : '—');
+      doc.font('Regular').fontSize(9);
+      const nameHeight = doc.heightOfString(name, { width: nameWidth });
+      doc.font('Bold').fontSize(9);
+      const metricHeight = Math.max(doc.heightOfString(count, { width: countWidth }), doc.heightOfString(effort, { width: effortWidth }));
+      const rowHeight = Math.max(30, Math.max(nameHeight, metricHeight) + 16);
+      if (doc.y + rowHeight > doc.page.height - doc.page.margins.bottom - 32) {
+        doc.addPage();
+        peopleHeader(true);
+      }
+      const y = doc.y;
+      if (index % 2 === 0) doc.roundedRect(46, y, contentWidth, rowHeight - 2, 6).fill(colors.surface);
+      doc.circle(64, y + 15, 9).fill(colors.purpleSoft);
       doc.font('Bold').fontSize(7).fillColor(colors.purple).text(
-        String(person.name || '?').split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase(),
-        peopleX + 2,
-        peopleY + 3,
-        { width: 14, align: 'center' }
+        name.split(/\s+/).map(part => part[0]).join('').slice(0, 2).toUpperCase(),
+        57, y + 11, { width: 14, align: 'center' }
       );
-      doc.font('Regular').fontSize(8).fillColor(colors.ink).text(person.name, peopleX + 26, peopleY + 2, { width: panelWidth - 115, ellipsis: true });
-      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(`${person.completed} iş · ${effortAvailable ? (hourBased ? person.hours : person.points) : '—'} ${unit}`, peopleX + panelWidth - 115, peopleY + 2, { width: 88, align: 'right' });
-      peopleY += 24;
+      doc.font('Regular').fontSize(9).fillColor(colors.ink).text(name, nameX, y + 8, { width: nameWidth });
+      doc.font('Bold').fontSize(9).text(count, countX, y + 8, { width: countWidth, align: 'right' });
+      doc.text(effort, effortX, y + 8, { width: effortWidth, align: 'right' });
+      doc.y = y + rowHeight;
     });
-    doc.y = panelY + panelHeight + 20;
+    if (!contributors.length) {
+      doc.font('Regular').fontSize(9).fillColor(colors.muted).text('Tamamlanan iş bulunmuyor.', 58, doc.y, { width: contentWidth - 24 });
+      doc.y += 18;
+    }
+    doc.y += 18;
   }
 
   sectionTitle('Katılım Özeti', 'Retro oturumunun genel görünümü');
