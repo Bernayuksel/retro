@@ -1624,3 +1624,10 @@ textarea.modern-input {
   }
 
 }
+
+/* GitHub Project board selection */
+.github-project-picker { display: grid; gap: 14px; min-width: 0; }
+.github-board-options { border: 1px solid #d9dce7; border-radius: 12px; padding: 12px; margin: 0; min-width: 0; max-height: 220px; overflow-y: auto; }
+.github-board-options legend { font-size: 13px; padding: 0 6px; }
+.github-board-options label { display: flex; align-items: center; gap: 9px; padding: 7px 4px; cursor: pointer; overflow-wrap: anywhere; }
+.github-board-options input[type="checkbox"] { width: 18px; height: 18px; flex: 0 0 18px; margin: 0; accent-color: #635bff; }

@@ -85,8 +85,12 @@ function renderSprintDashboard(board) {
   const completionRate = dashboard.totalItems
     ? Math.round((dashboard.completedItems / dashboard.totalItems) * 100)
     : 0;
-  const pointRate = dashboard.plannedPoints
-    ? Math.round((dashboard.completedPoints / dashboard.plannedPoints) * 100)
+  const hourBased = dashboard.effortUnit === 'saat';
+  const unit = hourBased ? 'saat' : 'SP';
+  const plannedEffort = hourBased ? dashboard.plannedHours : dashboard.plannedPoints;
+  const completedEffort = hourBased ? dashboard.completedHours : dashboard.completedPoints;
+  const pointRate = plannedEffort
+    ? Math.round((completedEffort / plannedEffort) * 100)
     : 0;
   const completedTypeTotal = dashboard.itemTypes.reduce(
     (total, item) => total + item.value,
@@ -118,8 +122,8 @@ function renderSprintDashboard(board) {
         </article>
         <article class="sprint-stat-card">
           <span>Tamamlanan efor</span>
-          <strong>${dashboard.completedPoints}</strong>
-          <small>${dashboard.plannedPoints} puanın %${pointRate}'i</small>
+          <strong>${completedEffort} ${unit}</strong>
+          <small>Planlanan ${plannedEffort} ${unit} · %${pointRate}</small>
         </article>
         <article class="sprint-stat-card">
           <span>Tamamlanan madde</span>
@@ -165,7 +169,7 @@ function renderSprintDashboard(board) {
                 <span class="contributor-avatar">${initials(person.name)}</span>
                 <span class="contributor-name">${escapeHtml(person.name)}</span>
                 <span><strong>${person.completed}</strong> madde</span>
-                <span><strong>${person.points}</strong> SP</span>
+                <span><strong>${hourBased ? person.hours : person.points}</strong> ${unit}</span>
               </div>
             `).join('')}
           </div>
@@ -551,7 +555,7 @@ function renderHome() {
           .value
           .trim();
       const githubSelection = window.getGithubSelection?.();
-      if (document.getElementById('title').tagName === 'SELECT' && !githubSelection) {
+      if (document.getElementById('title').tagName === 'SELECT' && (!githubSelection || !githubSelection.boards.length)) {
         return alert('Önce bir GitHub board ve sprint seçin.');
       }
 
@@ -588,7 +592,7 @@ function renderHome() {
             columns: cols,
             weekly_questions: weeklyQuestions,
             timer_minutes: timerMinutes,
-            github_board: githubSelection?.board,
+            github_boards: githubSelection?.boards,
             github_iteration_id: githubSelection?.iterationId
           })
 

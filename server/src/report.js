@@ -217,8 +217,12 @@ function buildPdf(filePath, snapshot) {
     const completionRate = dashboard.totalItems
       ? Math.round((dashboard.completedItems / dashboard.totalItems) * 100)
       : 0;
-    const pointRate = dashboard.plannedPoints
-      ? Math.round((dashboard.completedPoints / dashboard.plannedPoints) * 100)
+    const hourBased = dashboard.effortUnit === 'saat';
+    const unit = hourBased ? 'saat' : 'SP';
+    const plannedEffort = hourBased ? dashboard.plannedHours : dashboard.plannedPoints;
+    const completedEffort = hourBased ? dashboard.completedHours : dashboard.completedPoints;
+    const pointRate = plannedEffort
+      ? Math.round((completedEffort / plannedEffort) * 100)
       : 0;
 
     sectionTitle('Sprint Özeti', dashboard.name || 'Sprint performansı');
@@ -238,7 +242,7 @@ function buildPdf(filePath, snapshot) {
     const cardWidth = (contentWidth - gap * 3) / 4;
     const cardsY = doc.y;
     statCard(46, cardsY, cardWidth, 'TAMAMLANMA', `%${completionRate}`, `${dashboard.completedItems} / ${dashboard.totalItems} madde`, colors.purpleSoft);
-    statCard(46 + cardWidth + gap, cardsY, cardWidth, 'TAMAMLANAN EFOR', dashboard.completedPoints, `${dashboard.plannedPoints} SP planlandı`, colors.greenSoft);
+    statCard(46 + cardWidth + gap, cardsY, cardWidth, 'TAMAMLANAN EFOR', `${completedEffort} ${unit}`, `${plannedEffort} ${unit} planlandı`, colors.greenSoft);
     statCard(46 + (cardWidth + gap) * 2, cardsY, cardWidth, 'TAMAMLANAN', dashboard.completedItems, 'sprint içinde', colors.surface);
     statCard(46 + (cardWidth + gap) * 3, cardsY, cardWidth, 'TAMAMLANMAYAN', dashboard.carriedItems, 'açık madde', colors.amberSoft);
     doc.y = cardsY + 82;
@@ -273,7 +277,7 @@ function buildPdf(filePath, snapshot) {
         { width: 14, align: 'center' }
       );
       doc.font('Regular').fontSize(8).fillColor(colors.ink).text(person.name, peopleX + 26, peopleY + 2, { width: panelWidth - 115, ellipsis: true });
-      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(`${person.completed} iş · ${person.points} SP`, peopleX + panelWidth - 115, peopleY + 2, { width: 88, align: 'right' });
+      doc.font('Bold').fontSize(8).fillColor(colors.ink).text(`${person.completed} iş · ${hourBased ? person.hours : person.points} ${unit}`, peopleX + panelWidth - 115, peopleY + 2, { width: 88, align: 'right' });
       peopleY += 24;
     });
     doc.y = panelY + panelHeight + 20;

@@ -6,7 +6,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 
-test('GitHub sprint dropdown requires access and selected sprint is saved on the board', { timeout: 30000 }, async () => {
+test('GitHub multi-board selection saves combined hour estimates', { timeout: 30000 }, async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retro-github-'));
   const start = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   const fake = http.createServer(async (req, res) => {
@@ -16,7 +16,8 @@ test('GitHub sprint dropdown requires access and selected sprint is saved on the
     const result = query.includes('fields(first: 50)')
       ? { organization: { projectV2: {
           id: 'project-id', title: 'Team Project', fields: { nodes: [
-            { name: 'Board', options: [{ name: 'Team' }] },
+            { name: 'Board', options: [{ name: 'Team' }, { name: 'Mobile' }, { name: 'Other' }] },
+            { name: 'Original Estimate', dataType: 'NUMBER' },
             { name: 'Sprint', configuration: { iterations: [{ id: 'sprint-id', title: 'Sprint 1', startDate: start, duration: 14 }], completedIterations: [] } }
           ] }
         } } }
@@ -26,7 +27,27 @@ test('GitHub sprint dropdown requires access and selected sprint is saved on the
               { name: 'Team', field: { name: 'Board' } },
               { iterationId: 'sprint-id', title: 'Sprint 1', field: { name: 'Sprint' } },
               { name: 'Done', field: { name: 'Status' } },
-              { number: 3, field: { name: 'Story Point' } }
+              { number: 3.5, field: { name: 'Original Estimate' } },
+              { number: 99, field: { name: 'Story Point' } }
+            ] } },
+          { type: 'ISSUE', content: { number: 2, title: 'Mobile item', state: 'OPEN', assignees: { nodes: [{ login: 'mobile', name: 'Mobile teammate' }] } },
+            fieldValues: { nodes: [
+              { name: 'Mobile', field: { name: 'Board' } },
+              { iterationId: 'sprint-id', field: { name: 'Sprint' } },
+              { name: 'In progress', field: { name: 'Status' } },
+              { text: '2,5h', field: { name: 'Original Estimate' } }
+            ] } },
+          { type: 'ISSUE', content: { title: 'Excluded board', state: 'CLOSED' },
+            fieldValues: { nodes: [
+              { name: 'Other', field: { name: 'Board' } },
+              { iterationId: 'sprint-id', field: { name: 'Sprint' } },
+              { number: 100, field: { name: 'Original Estimate' } }
+            ] } },
+          { type: 'ISSUE', content: { title: 'Excluded sprint', state: 'CLOSED' },
+            fieldValues: { nodes: [
+              { name: 'Team', field: { name: 'Board' } },
+              { iterationId: 'other-sprint', field: { name: 'Sprint' } },
+              { number: 100, field: { name: 'Original Estimate' } }
             ] } }
         ] } } };
     res.setHeader('Content-Type', 'application/json');
@@ -65,18 +86,37 @@ test('GitHub sprint dropdown requires access and selected sprint is saved on the
     const createdResponse = await fetch(base + '/api/boards', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
       body: JSON.stringify({ columns: ['Good'], weekly_questions: ['Question?'], timer_minutes: 15,
-        github_board: 'Team', github_iteration_id: 'sprint-id' })
+        github_boards: ['Team', 'Mobile', 'Team'], github_iteration_id: 'sprint-id' })
     });
     if (createdResponse.status !== 200) throw new Error(await createdResponse.text());
     const created = await createdResponse.json();
     const board = await fetch(base + '/api/boards/' + created.id).then(res => res.json());
-    assert.equal(board.title, 'Team – Sprint 1');
+    assert.equal(board.title, 'Team + Mobile – Sprint 1');
+    assert.deepEqual(board.sprint_dashboard.boards, ['Team', 'Mobile']);
+    assert.equal(board.sprint_dashboard.totalItems, 2);
+    assert.equal(board.sprint_dashboard.effortUnit, 'saat');
+    assert.equal(board.sprint_dashboard.plannedHours, 6);
     assert.equal(board.sprint_dashboard.completedItems, 1);
-    assert.equal(board.sprint_dashboard.completedPoints, 3);
-    assert.deepEqual(board.github_members, ['Teammate']);
+    assert.equal(board.sprint_dashboard.completedHours, 3.5);
+    assert.deepEqual(board.github_members, ['Mobile teammate', 'Teammate']);
+    assert.equal(board.sprint_dashboard.contributors[0].hours, 3.5);
+    const single = await fetch(base + '/api/github/sprint-summary?board=Team&iterationId=sprint-id', { headers: { Cookie: cookie } }).then(res => res.json());
+    assert.equal(single.total, 1);
+    assert.equal(single.doneHours, 3.5);
   } finally {
     child.kill();
     fake.close();
     fs.rmSync(dataDir, { recursive: true, force: true });
   }
+});
+
+test('hour estimates parse numeric and hour text values and ignore SP', () => {
+  const { estimateHours, normalizeItem } = require('../github');
+  assert.equal(estimateHours({ number: 1.25 }), 1.25);
+  assert.equal(estimateHours({ text: '2 saat' }), 2);
+  assert.equal(estimateHours({ text: '1,5' }), 1.5);
+  assert.equal(estimateHours(null), 0);
+  assert.throws(() => estimateHours({ text: '1d' }));
+  const item = normalizeItem({ content: { title: 'Missing estimate' }, fieldValues: { nodes: [{ number: 8, field: { name: 'Story Point' } }] } });
+  assert.equal(item.hours, 0);
 });

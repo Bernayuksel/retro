@@ -90,6 +90,7 @@ app.post('/api/boards', async (req, res) => {
     columns,
     timer_minutes,
     github_board,
+    github_boards,
     github_iteration_id
   } = req.body;
   const weekly_questions = Array.isArray(req.body.weekly_questions)
@@ -114,16 +115,18 @@ app.post('/api/boards', async (req, res) => {
   let selectedTitle = title;
   let sprintDashboard = null;
   let githubMembers = null;
+  let selectedBoards = null;
   if (githubAccess.enabled()) {
     if (!githubAccess.hasAccess(req)) return res.status(401).json({ error: 'GitHub Project erişimi gerekli.' });
     try {
-      const summary = await github.getSprintSummary(github_board, github_iteration_id);
+      const summary = await github.getSprintSummary(github_boards ?? github_board, github_iteration_id);
       selectedTitle = `${summary.board} – ${summary.sprint.title}`;
       sprintDashboard = JSON.stringify(github.toDashboard(summary));
       githubMembers = JSON.stringify(summary.members);
+      selectedBoards = JSON.stringify(summary.boards);
     } catch (error) {
       console.error('[github board create]', error);
-      return res.status(502).json({ error: 'Seçilen sprint GitHub’dan alınamadı. Bağlantıyı kontrol edin.' });
+      return res.status(502).json({ error: error.message || 'Seçilen sprint GitHub’dan alınamadı. Bağlantıyı kontrol edin.' });
     }
   }
 
@@ -162,7 +165,7 @@ app.post('/api/boards', async (req, res) => {
     Number(timer_minutes) * 60000,
     sprintDashboard,
     githubMembers,
-    githubAccess.enabled() ? github_board : null,
+    selectedBoards,
     githubAccess.enabled() ? github_iteration_id : null,
     Date.now()
   );

@@ -12,7 +12,7 @@ const cfg = () => ({
   boardField: process.env.GITHUB_BOARD_FIELD || 'Board',
   sprintField: process.env.GITHUB_SPRINT_FIELD || 'Sprint',
   statusField: process.env.GITHUB_STATUS_FIELD || 'Status',
-  pointsField: process.env.GITHUB_POINTS_FIELD || 'Story Point',
+  estimateField: process.env.GITHUB_ESTIMATE_FIELD || 'Original Estimate',
   doneStatuses: (process.env.GITHUB_DONE_STATUSES || 'Done')
     .split(',').map(s => s.trim().toLowerCase()).filter(Boolean),
 });
@@ -51,6 +51,7 @@ query($org: String!, $number: Int!) {
       title
       fields(first: 50) {
         nodes {
+          ... on ProjectV2Field { id name dataType }
           ... on ProjectV2SingleSelectField { id name options { id name } }
           ... on ProjectV2IterationField {
             id name
@@ -94,6 +95,7 @@ async function getProjectMeta() {
     })).sort((a, b) => b.startDate.localeCompare(a.startDate));
 
     return {
+      fields,
       projectId: project.id,
       projectTitle: project.title,
       boards: boardField.options.map(o => o.name),
@@ -131,6 +133,7 @@ query($id: ID!, $cursor: String) {
             nodes {
               ... on ProjectV2ItemFieldSingleSelectValue { name field { ... on ProjectV2FieldCommon { name } } }
               ... on ProjectV2ItemFieldIterationValue { iterationId title field { ... on ProjectV2FieldCommon { name } } }
+              ... on ProjectV2ItemFieldTextValue { text field { ... on ProjectV2FieldCommon { name } } }
               ... on ProjectV2ItemFieldNumberValue { number field { ... on ProjectV2FieldCommon { name } } }
             }
           }
@@ -165,6 +168,16 @@ function detectType(content) {
   return 'Diğer';
 }
 
+function estimateHours(value) {
+  if (!value) return 0;
+  if (typeof value.number === 'number' && Number.isFinite(value.number) && value.number >= 0) return value.number;
+  const text = String(value.text || '').trim();
+  if (!text) return 0;
+  const match = text.match(/^(\d+(?:[.,]\d+)?)\s*(?:h|hr|hrs|hour|hours|saat)?$/i);
+  if (!match) throw new Error('Original Estimate değeri saat olarak okunamadı. Sayısal saat veya "2.5h" biçimini kullanın.');
+  return Number(match[1].replace(',', '.'));
+}
+
 function normalizeItem(node) {
   if (!node || !node.content) return null;
   const c = cfg();
@@ -184,7 +197,7 @@ function normalizeItem(node) {
     status,
     done: (status && c.doneStatuses.includes(status.toLowerCase())) || content.state === 'CLOSED',
     type: node.type === 'DRAFT_ISSUE' ? 'Taslak' : detectType(content),
-    points: f[c.pointsField] ? Number(f[c.pointsField].number) || 0 : 0,
+    hours: estimateHours(f[Object.keys(f).find(name => name.toLowerCase() === c.estimateField.toLowerCase())]),
     assignees: ((content.assignees && content.assignees.nodes) || []).map(a => a.name || a.login),
   };
 }
@@ -192,7 +205,7 @@ function normalizeItem(node) {
 // ---------- 3) Sprint özeti hesaplama ----------
 function summarize(items) {
   const done = items.filter(i => i.done);
-  const sum = arr => arr.reduce((t, i) => t + i.points, 0);
+  const sum = arr => arr.reduce((t, i) => t + i.hours, 0);
   const byType = {};
   for (const i of items) {
     byType[i.type] = byType[i.type] || { total: 0, done: 0 };
@@ -202,9 +215,9 @@ function summarize(items) {
   const byPerson = {};
   for (const i of done) {
     for (const p of (i.assignees.length ? i.assignees : ['Atanmamış'])) {
-      byPerson[p] = byPerson[p] || { name: p, items: 0, points: 0 };
+      byPerson[p] = byPerson[p] || { name: p, items: 0, hours: 0 };
       byPerson[p].items++;
-      byPerson[p].points += i.points;
+      byPerson[p].hours += i.hours;
     }
   }
   return {
@@ -212,8 +225,8 @@ function summarize(items) {
     done: done.length,
     carriedOver: items.length - done.length,
     completionPct: items.length ? Math.round((done.length / items.length) * 100) : 0,
-    plannedPoints: sum(items),
-    donePoints: sum(done),
+    plannedHours: sum(items),
+    doneHours: sum(done),
     byType,
     byPerson: Object.values(byPerson).sort((a, b) => b.items - a.items),
     openItems: items.filter(i => !i.done).map(i => ({ number: i.number, title: i.title, url: i.url, status: i.status })),
@@ -221,16 +234,23 @@ function summarize(items) {
 }
 
 async function getSprintSummary(board, iterationId) {
-  if (!board || !iterationId) throw new Error('board ve iterationId zorunlu');
+  const boards = [...new Set(Array.isArray(board) ? board : [board])];
+  if (!boards.length || boards.some(b => typeof b !== 'string' || !b) || !iterationId) throw new Error('En az bir board ve sprint seçin.');
   const meta = await getProjectMeta();
-  if (!meta.boards.includes(board)) throw new Error('Geçersiz board seçimi');
+  if (boards.some(b => !meta.boards.includes(b))) throw new Error('Geçersiz board seçimi');
+  const estimateField = meta.fields.find(f => f.name.toLowerCase() === cfg().estimateField.toLowerCase());
+  if (!estimateField || !['NUMBER', 'TEXT'].includes(estimateField.dataType)) {
+    throw new Error(`Saat tahmini alanı bulunamadı veya desteklenmiyor: ${cfg().estimateField}. GITHUB_ESTIMATE_FIELD ayarını kontrol edin.`);
+  }
   const sprint = meta.sprints.find(s => s.id === iterationId);
   if (!sprint || sprint.state === 'upcoming') throw new Error('Geçersiz sprint seçimi');
-  const items = (await getAllItems()).filter(i => i.board === board && i.iterationId === iterationId);
+  const items = (await getAllItems()).filter(i => boards.includes(i.board) && i.iterationId === iterationId);
   return {
     source: 'github',
     project: meta.projectTitle,
-    board,
+    board: boards.join(' + '),
+    boards,
+    effortUnit: 'saat',
     sprint: sprint || { id: iterationId },
     generatedAt: new Date().toISOString(),
     members: [...new Set(items.flatMap(i => i.assignees))].sort(),
@@ -247,17 +267,19 @@ function toDashboard(summary) {
     totalItems: summary.total,
     completedItems: summary.done,
     carriedItems: summary.carriedOver,
-    plannedPoints: summary.plannedPoints,
-    completedPoints: summary.donePoints,
+    boards: summary.boards,
+    effortUnit: 'saat',
+    plannedHours: summary.plannedHours,
+    completedHours: summary.doneHours,
     itemTypes: Object.entries(summary.byType).map(([label, value], index) => ({
       label, value: value.done, color: colors[index % colors.length]
     })),
     contributors: summary.byPerson.map(person => ({
-      name: person.name, completed: person.items, points: person.points
+      name: person.name, completed: person.items, hours: person.hours
     }))
   };
 }
 
 function clearCache() { cache.clear(); }
 
-module.exports = { getBoardSprints, getSprintSummary, getProjectMeta, summarize, normalizeItem, toDashboard, clearCache };
+module.exports = { getBoardSprints, getSprintSummary, getProjectMeta, summarize, normalizeItem, estimateHours, toDashboard, clearCache };

@@ -16,31 +16,53 @@
       if (response.status === 401) return 'unauthorized';
       if (!response.ok) throw new Error((await response.json().catch(() => ({}))).error || 'GitHub bağlantısı kurulamadı.');
       const groups = await response.json();
+      const picker = document.createElement('div');
+      picker.className = 'github-project-picker';
+      const fieldset = document.createElement('fieldset');
+      fieldset.className = 'github-board-options';
+      const legend = document.createElement('legend');
+      legend.textContent = 'Boardlar (birden fazla seçebilirsiniz)';
+      fieldset.append(legend);
       const select = document.createElement('select');
       select.id = 'title';
       select.className = input.className;
       select.required = true;
-      select.appendChild(new Option('Board ve sprint seçin...', ''));
-      for (const group of groups) {
-        const optgroup = document.createElement('optgroup');
-        optgroup.label = group.board;
-        for (const sprint of group.sprints) {
-          const option = new Option(`${sprint.title}${sprint.state === 'current' ? ' (aktif)' : ''}`, `${group.board} – ${sprint.title}`);
-          option.dataset.board = group.board;
-          option.dataset.iterationId = sprint.id;
-          optgroup.appendChild(option);
-        }
-        select.appendChild(optgroup);
-      }
-      select.onchange = () => {
-        const selected = select.selectedOptions[0];
-        selection = selected?.dataset.iterationId
-          ? { board: selected.dataset.board, iterationId: selected.dataset.iterationId }
+      select.setAttribute('aria-label', 'Sprint');
+      const updateSelection = () => {
+        const boards = [...fieldset.querySelectorAll('input:checked')].map(box => box.value);
+        selection = select.value && boards.length
+          ? { boards, iterationId: select.value }
           : null;
       };
-      if (input.isConnected) input.replaceWith(select);
+      const updateSprints = () => {
+        const previous = select.value;
+        const boards = [...fieldset.querySelectorAll('input:checked')].map(box => box.value);
+        const selectedGroups = groups.filter(group => boards.includes(group.board));
+        const sprints = selectedGroups.length ? selectedGroups[0].sprints.filter(sprint =>
+          selectedGroups.every(group => group.sprints.some(s => s.id === sprint.id))) : [];
+        select.replaceChildren(new Option('Sprint seçin...', ''));
+        for (const sprint of sprints) {
+          select.appendChild(new Option(`${sprint.title}${sprint.state === 'current' ? ' (aktif)' : ''}`, sprint.id));
+        }
+        select.disabled = !boards.length;
+        if (sprints.some(sprint => sprint.id === previous)) select.value = previous;
+        updateSelection();
+      };
+      for (const group of groups) {
+        const label = document.createElement('label');
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.value = group.board;
+        checkbox.onchange = updateSprints;
+        label.append(checkbox, document.createTextNode(group.board));
+        fieldset.append(label);
+      }
+      select.onchange = updateSelection;
+      picker.append(fieldset, select);
+      if (input.isConnected) input.replaceWith(picker);
       area.replaceChildren();
-      setNote(groups.length ? 'GitHub Project içindeki mevcut sprintlerden seçim yapın.' : 'Seçilebilecek sprint bulunamadı.');
+      updateSprints();
+      setNote(groups.length ? 'Boardları işaretleyin, ardından ortak sprinti seçin.' : 'Seçilebilecek board bulunamadı.');
       return 'ready';
     };
 

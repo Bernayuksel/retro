@@ -33,7 +33,7 @@ değerleri doldurun veya sunucunun ortam değişkenleri olarak ayarlayın:
 `GITHUB_PROJECT_NUMBER`, `GITHUB_PROJECT_ACCESS_KEY` (GitHub token'ından
 ayrı, rastgele üretilmiş en az 24 karakterlik erişim anahtarı). Gerekirse
 `GITHUB_BOARD_FIELD`, `GITHUB_SPRINT_FIELD`, `GITHUB_STATUS_FIELD`,
-`GITHUB_POINTS_FIELD` ve `GITHUB_DONE_STATUSES` değerlerini Project alanlarıyla
+`GITHUB_ESTIMATE_FIELD` ve `GITHUB_DONE_STATUSES` değerlerini Project alanlarıyla
 eşleştirin. Gerçek değerleri Git'e veya tarayıcı koduna koymayın.
 
 PowerShell örneği (dosya Git tarafından yok sayılır):
@@ -98,3 +98,9 @@ docker compose up --build
 - Board geçmişi / organizasyon bazlı arşiv
 - Jira / Slack entegrasyonu
 - Standart kolon şablonları
+
+Board oluştururken bir veya birden fazla board kutucuğunu işaretleyip ortak sprinti seçin.
+Seçilen boardların o sprintteki işleri tek özet olarak hesaplanır. Efor kaynağı
+varsayılan olarak `Original Estimate` alanıdır; sayısal değerler saat kabul edilir.
+Metin alanlarında `2.5`, `2,5`, `2h` ve `2 saat` desteklenir. Farklı alan adı varsa
+`GITHUB_ESTIMATE_FIELD` ile ayarlayın. Eski SP özetleri kendi birimiyle gösterilmeye devam eder.
