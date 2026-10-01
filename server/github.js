@@ -18,12 +18,17 @@ const cfg = () => ({
 });
 
 const cache = new Map();
+const pending = new Map();
 async function cached(key, fn) {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.data;
-  const data = await fn();
-  cache.set(key, { at: Date.now(), data });
-  return data;
+  if (pending.has(key)) return pending.get(key);
+  const promise = Promise.resolve().then(fn).then(data => {
+    cache.set(key, { at: Date.now(), data });
+    return data;
+  }).finally(() => pending.delete(key));
+  pending.set(key, promise);
+  return promise;
 }
 
 async function gql(query, variables) {
@@ -31,6 +36,7 @@ async function gql(query, variables) {
   if (!token) throw new Error('GITHUB_TOKEN tanımlı değil');
   const res = await fetch(API, {
     method: 'POST',
+    signal: AbortSignal.timeout(30000),
     headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     body: JSON.stringify({ query, variables }),
   });

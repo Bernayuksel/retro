@@ -114,6 +114,8 @@ function renderSprintDashboard(board) {
         `}
       </div>
 
+      ${!hourBased ? '<p class="muted">Bu boardda eski SP özeti kayıtlı. GitHub erişim anahtarınızla bağlanıp boardu yenilediğinizde saat özeti alınır.</p>' : ''}
+      ${board.github_sync_error ? `<p class="muted">Saat özeti yenilenemedi: ${escapeHtml(board.github_sync_error)}</p>` : ''}
       <div class="sprint-stat-grid">
         <article class="sprint-stat-card">
           <span>Tamamlanma</span>
@@ -578,41 +580,30 @@ function renderHome() {
       }
 
 
-      const res =
-        await fetch('/api/boards', {
-
+      const button = document.getElementById('createBtn');
+      if (button.disabled) return;
+      button.disabled = true;
+      button.setAttribute('aria-busy', 'true');
+      button.textContent = 'Oluşturuluyor…';
+      try {
+        const res = await fetch('/api/boards', {
           method: 'POST',
-
-          headers: {
-            'Content-Type': 'application/json'
-          },
-
-          body: JSON.stringify({
-            title,
-            columns: cols,
-            weekly_questions: weeklyQuestions,
-            timer_minutes: timerMinutes,
-            github_boards: githubSelection?.boards,
-            github_iteration_id: githubSelection?.iterationId
-          })
-
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title, columns: cols, weekly_questions: weeklyQuestions,
+            timer_minutes: timerMinutes, github_boards: githubSelection?.boards,
+            github_iteration_id: githubSelection?.iterationId })
         });
-
-
-      const data =
-        await res.json();
-
-
-      if (!res.ok) {
-
-        return alert(
-          data.error || 'Board oluşturulamadı.'
-        );
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Board oluşturulamadı.');
+        location.hash = `#/board/${data.id}`;
+      } catch (error) {
+        alert(error.message || 'Board oluşturulamadı. Bağlantıyı kontrol edin.');
+      } finally {
+        button.disabled = false;
+        button.removeAttribute('aria-busy');
+        button.textContent = 'Board Oluştur →';
       }
 
-
-      location.hash =
-        `#/board/${data.id}`;
     };
 
 

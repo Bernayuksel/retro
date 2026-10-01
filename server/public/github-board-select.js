@@ -33,6 +33,18 @@
         selection = select.value && boards.length
           ? { boards, iterationId: select.value }
           : null;
+        if (!selection) return;
+        const selected = selection;
+        const params = new URLSearchParams({ iterationId: selected.iterationId });
+        selected.boards.forEach(board => params.append('board', board));
+        setNote('Sprint verileri hazırlanıyor… Formu doldurmaya devam edebilirsiniz.');
+        fetch(`/api/github/sprint-summary?${params}`, { credentials: 'same-origin' })
+          .then(async response => {
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Sprint verisi alınamadı.');
+            if (selection === selected && note?.isConnected) setNote('Sprint verileri hazır. Efor Original Estimate üzerinden saat olarak hesaplanır.');
+          })
+          .catch(error => { if (selection === selected && note?.isConnected) setNote(error.message); });
       };
       const updateSprints = () => {
         const previous = select.value;

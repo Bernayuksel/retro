@@ -198,6 +198,24 @@ app.get('/api/boards/:id', async (req, res) => {
     });
   }
 
+  // Upgrade legacy SP snapshots from real estimates, never by relabelling points.
+  let githubSyncError = null;
+  const dashboard = board.sprint_dashboard ? JSON.parse(board.sprint_dashboard) : null;
+  if (dashboard && dashboard.effortUnit !== 'saat' && board.github_board && board.github_iteration_id && githubAccess.hasAccess(req)) {
+    try {
+      let boards;
+      try { boards = JSON.parse(board.github_board); } catch { boards = board.github_board; }
+      const summary = await github.getSprintSummary(boards, board.github_iteration_id);
+      board.sprint_dashboard = JSON.stringify(github.toDashboard(summary));
+      board.github_members = JSON.stringify(summary.members);
+      await db.prepare('UPDATE boards SET sprint_dashboard = ?, github_members = ? WHERE id = ?')
+        .run(board.sprint_dashboard, board.github_members, board.id);
+    } catch (error) {
+      githubSyncError = error.message;
+      console.error('[github legacy snapshot]', error.message);
+    }
+  }
+
   const columns = JSON.parse(board.columns);
 
   const cards = await db
@@ -306,6 +324,7 @@ app.get('/api/boards/:id', async (req, res) => {
     title: board.title,
 
     status: board.status,
+    github_sync_error: githubSyncError,
     sprint_dashboard: board.sprint_dashboard ? JSON.parse(board.sprint_dashboard) : null,
     github_members: board.github_members ? JSON.parse(board.github_members) : [],
 

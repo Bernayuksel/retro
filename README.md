@@ -104,3 +104,9 @@ Seçilen boardların o sprintteki işleri tek özet olarak hesaplanır. Efor kay
 varsayılan olarak `Original Estimate` alanıdır; sayısal değerler saat kabul edilir.
 Metin alanlarında `2.5`, `2,5`, `2h` ve `2 saat` desteklenir. Farklı alan adı varsa
 `GITHUB_ESTIMATE_FIELD` ile ayarlayın. Eski SP özetleri kendi birimiyle gösterilmeye devam eder.
+
+Sprint seçildiğinde veriler önceden yüklenir; eşzamanlı sorgular aynı isteği paylaşır.
+Board oluşturma sırasında düğme bekleme durumuna geçer ve tekrar tıklamayı engeller.
+Eski SP özeti olan GitHub bağlantılı board, Project erişim çereziyle açıldığında
+gerçek saat tahminleriyle bir kez yenilenir. Önceden oluşturulmuş raporlar geçmiş
+çıktıları korur; eski SP değeri saat olarak yeniden etiketlenmez.

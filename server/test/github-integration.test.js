@@ -9,10 +9,15 @@ const path = require('node:path');
 test('GitHub multi-board selection saves combined hour estimates', { timeout: 30000 }, async () => {
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'retro-github-'));
   const start = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
+  let itemRequests = 0;
   const fake = http.createServer(async (req, res) => {
     let body = '';
     for await (const chunk of req) body += chunk;
     const query = JSON.parse(body).query;
+    if (!query.includes('fields(first: 50)')) {
+      itemRequests++;
+      await new Promise(resolve => setTimeout(resolve, 60));
+    }
     const result = query.includes('fields(first: 50)')
       ? { organization: { projectV2: {
           id: 'project-id', title: 'Team Project', fields: { nodes: [
@@ -83,6 +88,11 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
     const cookie = login.headers.get('set-cookie').split(';')[0];
     const options = await fetch(base + '/api/github/board-sprints', { headers: { Cookie: cookie } }).then(res => res.json());
     assert.equal(options[0].sprints[0].id, 'sprint-id');
+    await Promise.all([1, 2].map(() => fetch(base + '/api/github/sprint-summary?board=Team&iterationId=sprint-id', { headers: { Cookie: cookie } }).then(res => {
+      assert.equal(res.status, 200);
+      return res.json();
+    })));
+    assert.equal(itemRequests, 1, 'concurrent preload and creation must share one item request');
     const createdResponse = await fetch(base + '/api/boards', {
       method: 'POST', headers: { 'Content-Type': 'application/json', Cookie: cookie },
       body: JSON.stringify({ columns: ['Good'], weekly_questions: ['Question?'], timer_minutes: 15,
@@ -103,6 +113,22 @@ test('GitHub multi-board selection saves combined hour estimates', { timeout: 30
     const single = await fetch(base + '/api/github/sprint-summary?board=Team&iterationId=sprint-id', { headers: { Cookie: cookie } }).then(res => res.json());
     assert.equal(single.total, 1);
     assert.equal(single.doneHours, 3.5);
+    assert.equal(itemRequests, 1, 'board creation reuses preloaded project data');
+    const { createClient } = require('@libsql/client');
+    const legacyDb = createClient({ url: `file:${path.join(dataDir, 'retro.db')}` });
+    try {
+      await legacyDb.execute({ sql: 'UPDATE boards SET sprint_dashboard = ?, github_board = ? WHERE id = ?',
+        args: [JSON.stringify({ ...board.sprint_dashboard, effortUnit: undefined, completedHours: undefined, plannedHours: undefined, plannedPoints: 99, completedPoints: 99 }), 'Team', created.id] });
+      const anonymous = await fetch(base + '/api/boards/' + created.id).then(res => res.json());
+      assert.equal(anonymous.sprint_dashboard.completedPoints, 99, 'unauthorized reads cannot migrate');
+      const migrated = await fetch(base + '/api/boards/' + created.id, { headers: { Cookie: cookie } }).then(res => res.json());
+      assert.equal(migrated.sprint_dashboard.effortUnit, 'saat');
+      assert.equal(migrated.sprint_dashboard.completedHours, 3.5, 'hours must come from GitHub, not relabelled SP');
+      assert.equal(migrated.sprint_dashboard.completedPoints, undefined);
+      const persisted = await fetch(base + '/api/boards/' + created.id).then(res => res.json());
+      assert.equal(persisted.sprint_dashboard.completedHours, 3.5);
+    } finally { legacyDb.close(); }
+
   } finally {
     child.kill();
     fake.close();
